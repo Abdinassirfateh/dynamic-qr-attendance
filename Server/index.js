@@ -8,12 +8,11 @@ const pool = require('./db');
 
 const app = express();
 
-// ✅ EXPRESS CORS — controls all fetch()/REST API calls
+// ✅ EXPRESS CORS
 app.use(cors({
   origin: [
     'http://localhost:5173',
-    'https://dynamic-qr-attendance.vercel.app/'
-
+    'https://dynamic-qr-attendance-abdinassirfatehs-projects.vercel.app'
   ],
   credentials: true
 }));
@@ -26,12 +25,12 @@ app.use('/api/sessions', require('./routes/sessions'));
 // ✅ STEP 1: Create the HTTP server first
 const server = http.createServer(app);
 
-// ✅ STEP 2: Create io using that server — SOCKET.IO CORS is separate!
+// ✅ STEP 2: Create io using that server
 const io = new Server(server, {
   cors: {
     origin: [
       'http://localhost:5173',
-      'https://dynamic-qr-attendance.vercel.app/'
+      'https://dynamic-qr-attendance-abdinassirfatehs-projects.vercel.app'
     ],
     methods: ['GET', 'POST'],
     credentials: true
