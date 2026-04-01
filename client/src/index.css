@@ -15,3 +15,48 @@ body {
   min-height: 100vh;
   width: 100%;
 }
+
+/* Screen reader only utility — hides visually but readable by screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Skip link — invisible until focused by keyboard/screen reader */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  background: #1a237e;
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0 0 6px 6px;
+  font-weight: 600;
+  z-index: 9999;
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Visible focus ring for keyboard users */
+:focus-visible {
+  outline: 3px solid #1a237e;
+  outline-offset: 2px;
+  border-radius: 4px;
+}

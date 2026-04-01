@@ -50,6 +50,7 @@ client/
       AdminPanel.jsx
       LecturerDashboard.jsx
       Login.jsx
+      Register.jsx
       StudentDashboard.jsx
     App.css
     App.jsx
@@ -61,10 +62,475 @@ client/
   package.json
   README.md
   vite.config.js
+Server/
+  routes/
+    auth.js
+    sessions.js
+  .env
+  db.js
+  index.js
+  package.json
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="client/src/pages/Register.jsx">
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+export default function Register() {
+  const navigate = useNavigate();
+  
+  // State for form inputs
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('Student');
+  
+  // State for UI feedback
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firstName, lastName, email, password, role }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Registration failed');
+      }
+
+      // Automatically log them in by saving the token
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+
+      // Redirect based on role
+      if (data.user.role === 'Student') navigate('/student');
+      else if (data.user.role === 'Lecturer') navigate('/lecturer');
+      else navigate('/admin');
+
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <h1 style={styles.title}>Create Account</h1>
+        <p style={styles.subtitle}>Join MySignInApp</p>
+        
+        {error && <div style={styles.errorMessage}>{error}</div>}
+        
+        <form onSubmit={handleRegister} style={styles.form}>
+          <div style={styles.row}>
+            <input aria-label="First Name" type="text" placeholder="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} required style={styles.input} />
+            <input aria-label="Last Name" type="text" placeholder="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} required style={styles.input} />
+          </div>
+
+          <input aria-label="Email address" type="email" placeholder="USIU Email" value={email} onChange={(e) => setEmail(e.target.value)} required style={styles.input} />
+          <input aria-label="Password" type="password" placeholder="Secure Password" value={password} onChange={(e) => setPassword(e.target.value)} required style={styles.input} />
+          
+          <select name="role" aria-label="Select your role" value={role} onChange={(e) => setRole(e.target.value)} style={styles.input}>
+            <option value="Student">Student</option>
+          </select>
+          
+          <button type="submit" disabled={isLoading} style={styles.button}>
+            {isLoading ? 'Creating Account...' : 'Register'}
+          </button>
+        </form>
+        
+        <div style={styles.footer}>
+          <p style={styles.loginLink} onClick={() => navigate('/')} role="button">
+            Already have an account? <strong>Log in here</strong>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  container: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4f7f9' },
+  card: { background: '#fff', padding: '2.5rem', borderRadius: '8px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', width: '100%', maxWidth: '450px' },
+  title: { textAlign: 'center', color: '#1a237e', marginBottom: '0.25rem', fontSize: '2rem', letterSpacing: '-0.5px' },
+  subtitle: { textAlign: 'center', color: '#666', marginBottom: '1.5rem', fontSize: '0.95rem' },
+  form: { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  row: { display: 'flex', gap: '1rem' },
+  input: { padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd', fontSize: '1rem', background: '#fff', width: '100%', boxSizing: 'border-box' },
+  button: { padding: '0.8rem', background: '#1a237e', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '1rem', cursor: 'pointer', fontWeight: '600', marginTop: '0.5rem' },
+  errorMessage: { color: '#d32f2f', background: '#fdecea', padding: '0.75rem', borderRadius: '6px', fontSize: '0.9rem', textAlign: 'center', marginBottom: '1rem', border: '1px solid #f5c2c7' },
+  footer: { marginTop: '1.5rem', borderTop: '1px solid #eee', paddingTop: '1rem', textAlign: 'center' },
+  loginLink: { color: '#1a237e', cursor: 'pointer', fontSize: '0.9rem', margin: 0 },
+};
+</file>
+
+<file path="Server/routes/auth.js">
+const express = require('express');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto'); // Built-in Node library for generating IDs
+const pool = require('../db');
+
+const router = express.Router();
+
+// 1. REGISTER ROUTE
+router.post('/register', async (req, res) => {
+  try {
+    const { firstName, lastName, email, password, role } = req.body;
+
+    // Check if user already exists
+    const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userExists.rows.length > 0) {
+      return res.status(401).json({ error: 'User already exists' });
+    }
+
+    // Hash the password securely
+    const saltRounds = 10;
+    const salt = await bcrypt.genSalt(saltRounds);
+    const bcryptPassword = await bcrypt.hash(password, salt);
+
+    // Generate a unique user ID
+    const userId = crypto.randomUUID();
+
+    // Insert new user into the database
+    const newUser = await pool.query(
+      'INSERT INTO users (user_id, first_name, last_name, email, password_hash, role) VALUES ($1, $2, $3, $4, $5, $6) RETURNING user_id, first_name, last_name, email, role',
+      [userId, firstName, lastName, email, bcryptPassword, role]
+    );
+
+    // Generate JWT Token
+    const token = jwt.sign({ user_id: newUser.rows[0].user_id, role: newUser.rows[0].role }, process.env.JWT_SECRET, { expiresIn: '10h' });
+
+    res.json({ token, user: newUser.rows[0] });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: 'Server Error during registration' });
+  }
+});
+
+// 2. LOGIN ROUTE
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Check if user exists
+    const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (user.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid Credentials' });
+    }
+
+    // Check if password matches the hashed password in database
+    const validPassword = await bcrypt.compare(password, user.rows[0].password_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid Credentials' });
+    }
+
+    // Generate JWT Token
+    const token = jwt.sign({ user_id: user.rows[0].user_id, role: user.rows[0].role }, process.env.JWT_SECRET, { expiresIn: '10h' });
+
+    // Send back token and user info (excluding password)
+    res.json({ 
+      token, 
+      user: { 
+        user_id: user.rows[0].user_id, 
+        first_name: user.rows[0].first_name, 
+        last_name: user.rows[0].last_name, 
+        email: user.rows[0].email, 
+        role: user.rows[0].role 
+      } 
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: 'Server Error during login' });
+  }
+});
+
+module.exports = router;
+</file>
+
+<file path="Server/routes/sessions.js">
+const express = require('express');
+const pool = require('../db'); 
+const router = express.Router();
+
+// 1. START A SESSION
+router.post('/start', async (req, res) => {
+  try {
+    const { courseId, lecturerId } = req.body;
+
+    // First, ensure the course actually exists in the database. 
+    // If it doesn't, this automatically creates it to prevent foreign key errors.
+    await pool.query(
+      'INSERT INTO courses (course_id, course_name) VALUES ($1, $1) ON CONFLICT (course_id) DO NOTHING',
+      [courseId]
+    );
+
+    // Create the new active session
+    const newSession = await pool.query(
+      "INSERT INTO sessions (course_id, lecturer_id, status) VALUES ($1, $2, 'Active') RETURNING *",
+      [courseId, lecturerId]
+    );
+
+    res.json(newSession.rows[0]);
+  } catch (err) {
+    console.error("Error starting session:", err.message);
+    res.status(500).json({ error: 'Server error while starting session' });
+  }
+});
+
+// 2. SAVE THE ROTATING 7-SECOND TOKEN
+router.post('/rotate', async (req, res) => {
+  try {
+    const { sessionId, token } = req.body;
+    
+    // We set the token to expire in exactly 10 seconds. 
+    // This gives students a 3-second grace period for Wi-Fi latency on a 7-second rotation!
+    const expiresAt = new Date(Date.now() + 10000); 
+
+    const newQr = await pool.query(
+      "INSERT INTO qr_codes (session_id, token, expires_at) VALUES ($1, $2, $3) RETURNING *",
+      [sessionId, token, expiresAt]
+    );
+
+    res.json(newQr.rows[0]);
+  } catch (err) {
+    console.error("Error saving QR token:", err.message);
+    res.status(500).json({ error: 'Server error while saving token' });
+  }
+});
+
+// 3. END THE SESSION
+router.post('/end', async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    const endedSession = await pool.query(
+      "UPDATE sessions SET status = 'Closed', end_time = CURRENT_TIMESTAMP WHERE session_id = $1 RETURNING *",
+      [sessionId]
+    );
+
+    res.json(endedSession.rows[0]);
+  } catch (err) {
+    console.error("Error ending session:", err.message);
+    res.status(500).json({ error: 'Server error while ending session' });
+  }
+});
+
+
+
+// 4. LOG STUDENT ATTENDANCE VIA SCANNED TOKEN
+router.post('/attend', async (req, res) => {
+  try {
+    console.log("🚨 INCOMING SCAN TRIGGERED! Data:", req.body);
+    const { token, studentId, deviceId } = req.body;
+
+    // THE BRICK WALL: Reject if there is no fingerprint
+    if (!deviceId) {
+      return res.status(400).json({ error: 'Security failed: No device fingerprint.' });
+    }
+
+    // 1. Look up the token
+    const qrCheck = await pool.query("SELECT session_id, expires_at FROM qr_codes WHERE token = $1", [token]);
+    if (qrCheck.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid QR code.' });
+    }
+    const { session_id, expires_at } = qrCheck.rows[0];
+
+    // 2. THE UNIVERSAL LOCK (Anti-Buddy Punching)
+    console.log(`🔍 Checking DB: Has device [${deviceId}] been used by anyone EXCEPT student [${studentId}]?`);
+    const deviceCheck = await pool.query(
+      "SELECT * FROM attendance_records WHERE device_id = $1 AND student_id != $2",
+      [deviceId, studentId]
+    );
+
+    if (deviceCheck.rows.length > 0) {
+      console.log("🚨 BLOCKING BUDDY PUNCH AND LOGGING ANOMALY!");
+      
+      //NEW Silently log the intrusion attempt to the database
+      await pool.query(
+        "INSERT INTO anomaly_logs (session_id, attempted_student_id, device_id, flag_reason) VALUES ($1, $2, $3, $4)",
+        [session_id, studentId, deviceId, 'CRITICAL: Attempted Proxy Sign-In (Buddy Punching)']
+      );
+
+      return res.status(403).json({ error: 'SECURITY ALERT: This device has already been used to sign in a different student.' });
+    }
+    // 3. Duplicate Student Check
+    const duplicateCheck = await pool.query(
+      "SELECT * FROM attendance_records WHERE session_id = $1 AND student_id = $2",
+      [session_id, studentId]
+    );
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'You are already marked present for this class!' });
+    }
+
+    // 4. Success! Save to database
+    await pool.query(
+      "INSERT INTO attendance_records (session_id, student_id, device_id, status) VALUES ($1, $2, $3, 'Present')",
+      [session_id, studentId, deviceId]
+    );
+    
+    console.log("✅ Attendance Saved Successfully!");
+    res.json({ message: 'Attendance successfully logged!' });
+
+  } catch (err) {
+    console.error("❌ Error logging attendance:", err.message);
+    res.status(500).json({ error: 'Server error while logging attendance' });
+  }
+  });
+ // GET ALL SECURITY ANOMALIES FOR THE LECTURER DASHBOARD
+router.get('/anomalies', async (req, res) => {
+  try {
+    const anomalies = await pool.query(`
+      SELECT flag_reason, created_at, attempted_student_id 
+      FROM anomaly_logs 
+      ORDER BY created_at DESC 
+      LIMIT 10
+    `);
+    res.json(anomalies.rows);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: 'Server error fetching anomalies' });
+  } 
+});
+module.exports = router;
+</file>
+
+<file path="Server/db.js">
+const { Pool } = require('pg');
+require('dotenv').config();
+
+// Create a new connection pool using the connection string from your .env file
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    // If you are using Supabase or Neon, SSL is usually required. 
+    // This setting ensures the connection is secure.
+    ssl: {
+        rejectUnauthorized: false
+    }
+});
+
+// Test the connection when it first connects
+pool.on('connect', () => {
+    console.log('Successfully connected to the PostgreSQL database!');
+});
+
+// Log any unexpected errors so the server doesn't silently fail
+pool.on('error', (err) => {
+    console.error('Unexpected error on idle client', err);
+    process.exit(-1);
+});
+
+// Export the pool so we can use it in index.js and other files to run queries
+module.exports = pool;
+</file>
+
+<file path="Server/index.js">
+const express = require('express');
+const http = require('http');
+const cors = require('cors');
+const { Server } = require('socket.io');
+require('dotenv').config();
+
+const pool = require('./db'); // Import your database connection
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/sessions', require('./routes/sessions'));
+
+// Create HTTP Server and bind Socket.io
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:5173", // Your React frontend URL
+    methods: ["GET", "POST"]
+  }
+});
+
+// Test Database Route
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const result = await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'");
+    res.json({
+      message: "Database connection successful!",
+      tables: result.rows.map(row => row.table_name)
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: "Database connection failed." });
+  }
+});
+
+// WebSocket Logic for Dynamic QR Codes
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.id}`);
+
+  socket.on('start_session', (sessionId) => {
+    socket.join(sessionId);
+    console.log(`Lecturer started session: ${sessionId}`);
+    
+    // Simulate the 7-10 second rotation
+    setInterval(() => {
+      const newToken = `qr_token_${Math.random().toString(36).substring(7)}`;
+      io.to(sessionId).emit('new_qr_code', { token: newToken });
+    }, 8000); 
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.id}`);
+  });
+});
+
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+</file>
+
+<file path="Server/package.json">
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+  "dev": "nodemon index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.20.0",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
+</file>
 
 <file path="client/public/vite.svg">
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="31.88" height="32" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 257"><defs><linearGradient id="IconifyId1813088fe1fbc01fb466" x1="-.828%" x2="57.636%" y1="7.652%" y2="78.411%"><stop offset="0%" stop-color="#41D1FF"></stop><stop offset="100%" stop-color="#BD34FE"></stop></linearGradient><linearGradient id="IconifyId1813088fe1fbc01fb467" x1="43.376%" x2="50.316%" y1="2.242%" y2="89.03%"><stop offset="0%" stop-color="#FFEA83"></stop><stop offset="8.333%" stop-color="#FFDD35"></stop><stop offset="100%" stop-color="#FFA800"></stop></linearGradient></defs><path fill="url(#IconifyId1813088fe1fbc01fb466)" d="M255.153 37.938L134.897 252.976c-2.483 4.44-8.862 4.466-11.382.048L.875 37.958c-2.746-4.814 1.371-10.646 6.827-9.67l120.385 21.517a6.537 6.537 0 0 0 2.322-.004l117.867-21.483c5.438-.991 9.574 4.796 6.877 9.62Z"></path><path fill="url(#IconifyId1813088fe1fbc01fb467)" d="M185.432.063L96.44 17.501a3.268 3.268 0 0 0-2.634 3.014l-5.474 92.456a3.268 3.268 0 0 0 3.997 3.378l24.777-5.718c2.318-.535 4.413 1.507 3.936 3.838l-7.361 36.047c-.495 2.426 1.782 4.5 4.151 3.78l15.304-4.649c2.372-.72 4.652 1.36 4.15 3.788l-11.698 56.621c-.732 3.542 3.979 5.473 5.943 2.437l1.313-2.028l72.516-144.72c1.215-2.423-.88-5.186-3.54-4.672l-25.505 4.922c-2.396.462-4.435-1.77-3.759-4.114l16.646-57.705c.677-2.35-1.37-4.583-3.769-4.113Z"></path></svg>
@@ -84,265 +550,121 @@ const users = [
 ];
 
 const alerts = [
-  { id: 1, message: 'Suspicious scan detected — Jane Mwangi (SWE3090)', type: 'warning' },
-  { id: 2, message: 'John Doe attendance below 75% — BIS3050', type: 'risk' },
+  { id: 1, message: 'Device Fingerprint Mismatch — Jane Mwangi (SWE3090)', type: 'high' },
+  { id: 2, message: 'Multiple Accounts on Single Device — John Doe (BIS3050)', type: 'high' },
+  { id: 3, message: 'Overlapping Class Attendance — Amani Wanjiku (IST4040)', type: 'medium' },
 ];
+
+// SVG Icons
+const AlertTriangle = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px', verticalAlign: 'middle' }}>
+    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+    <line x1="12" y1="9" x2="12" y2="13"></line>
+    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+  </svg>
+);
+
+const DownloadIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', verticalAlign: 'middle' }}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+    <polyline points="7 10 12 15 17 10"></polyline>
+    <line x1="12" y1="15" x2="12" y2="3"></line>
+  </svg>
+);
 
 export default function AdminPanel() {
   const navigate = useNavigate();
 
   return (
-    <div style={styles.container}>
-      <header style={styles.header}>
-        <h2 style={styles.headerText}>Admin Panel</h2>
-        <button aria-label="Logout" onClick={() => navigate('/')} style={styles.logout}>Logout</button>
-      </header>
+    <div style={styles.layout}>
+      {/* SIDEBAR */}
+      <aside style={styles.sidebar}>
+        <div style={styles.sidebarHeader}>
+          <h2 style={styles.logo}>MySignInApp</h2>
+        </div>
+        <nav style={styles.nav}>
+          <p style={styles.navLink} onClick={() => navigate('/admin')}>Overview</p>
+          <p style={styles.activeNavLink}>Security Alerts</p>
+          <p style={styles.navLink}>User Management</p>
+        </nav>
+        <div style={styles.sidebarFooter}>
+          <div style={styles.profileBox}>
+            <p style={{ fontWeight: 'bold', margin: 0 }}>System Admin</p>
+            <p style={{ fontSize: '0.8rem', color: '#ccc', margin: 0 }}>Administrator</p>
+          </div>
+          <button aria-label="Logout" onClick={() => navigate('/')} style={styles.logoutBtn}>Logout</button>
+        </div>
+      </aside>
 
+      {/* MAIN CONTENT */}
       <main style={styles.main}>
-        <h3>System Overview</h3>
+        <header style={styles.header}>
+          <div style={{...styles.greetingBox, borderLeft: '5px solid #0288d1'}}>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#333' }}>System Administration</h3>
+            <p style={{ color: '#666', margin: 0 }}>Monitoring attendance integrity and campus anomalies.</p>
+          </div>
+        </header>
 
         <div style={styles.statsRow}>
-          <div style={styles.stat}><strong>6,700</strong><p>Total Students</p></div>
-          <div style={styles.stat}><strong>124</strong><p>Active Sessions</p></div>
-          <div style={styles.stat}><strong>2</strong><p>Active Alerts</p></div>
+          <div style={styles.stat}>
+            <strong style={styles.statNumber}>6,700</strong>
+            <p style={styles.statLabel}>Total Students</p>
+          </div>
+          <div style={styles.stat}>
+            <strong style={styles.statNumber}>124</strong>
+            <p style={styles.statLabel}>Active Sessions</p>
+          </div>
+          <div style={styles.stat}>
+            <strong style={{...styles.statNumber, color: '#d32f2f'}}>{alerts.length}</strong>
+            <p style={styles.statLabel}>Active Alerts</p>
+          </div>
         </div>
 
         <section aria-label="System alerts" style={styles.section}>
-          <h4>🔔 Alerts</h4>
+          <h4 style={{ margin: '0 0 1rem 0', color: '#333' }}>Security Flags</h4>
           {alerts.map(alert => (
-            <div key={alert.id} style={{ ...styles.alert, background: alert.type === 'warning' ? '#fff3e0' : '#ffebee' }}>
-              {alert.message}
+            <div key={alert.id} style={{ 
+              ...styles.alertRow, 
+              borderLeft: alert.type === 'high' ? '4px solid #d32f2f' : '4px solid #f57c00',
+              background: alert.type === 'high' ? '#fff5f5' : '#fff8e1'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <AlertTriangle />
+                <span style={{ fontWeight: '500', color: '#333' }}>{alert.message}</span>
+              </div>
+              <button style={styles.dismissBtn}>Review</button>
             </div>
           ))}
         </section>
 
         <section aria-label="User management" style={styles.section}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h4>👥 Users</h4>
-            <button aria-label="Export attendance report" style={styles.exportBtn}>Export Report</button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h4 style={{ margin: 0, color: '#333' }}>System Users</h4>
+            <button aria-label="Export report" style={styles.exportBtn}>
+              <DownloadIcon /> Export CSV
+            </button>
           </div>
           <table style={styles.table} aria-label="User management table">
             <thead>
               <tr style={styles.tableHeader}>
-                <th>Name</th><th>Role</th><th>Status</th>
+                <th style={styles.th}>Name</th>
+                <th style={styles.th}>Role</th>
+                <th style={styles.th}>Status</th>
               </tr>
             </thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id} style={styles.tableRow}>
-                  <td>{u.name}</td>
-                  <td>{u.role}</td>
-                  <td style={{ color: u.status === 'Active' ? 'green' : 'orange' }}>{u.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-const styles = {
-  container: { minHeight: '100vh', background: '#f0f4f8' },
-  header: { background: '#1a237e', color: '#fff', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  headerText: { margin: 0, color: '#fff' },
-  logout: { background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer' },
-  main: { padding: '2rem', maxWidth: '900px', margin: '0 auto' },
-  statsRow: { display: 'flex', gap: '1rem', marginBottom: '1.5rem' },
-  stat: { background: '#fff', flex: 1, padding: '1.25rem', borderRadius: '10px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' },
-  section: { background: '#fff', padding: '1.5rem', borderRadius: '10px', marginBottom: '1.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' },
-  alert: { padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '0.5rem', fontSize: '0.9rem' },
-  table: { width: '100%', borderCollapse: 'collapse', marginTop: '1rem' },
-  tableHeader: { background: '#f5f5f5', textAlign: 'left' },
-  tableRow: { borderBottom: '1px solid #eee' },
-  exportBtn: { background: '#1a237e', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer' },
-};
-</file>
-
-<file path="client/src/pages/LecturerDashboard.jsx">
-import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-
-const courses = [
-  { id: 1, name: 'Software Engineering', code: 'SWE3090', students: 45 },
-  { id: 2, name: 'Database Systems', code: 'BIS3050', students: 38 },
-];
-
-export default function LecturerDashboard() {
-  const navigate = useNavigate();
-  const [activeSession, setActiveSession] = useState(null);
-
-  return (
-    <div style={styles.container}>
-      <header style={styles.header}>
-        <h2 style={styles.headerText}>Lecturer Dashboard</h2>
-        <button aria-label="Logout" onClick={() => navigate('/')} style={styles.logout}>Logout</button>
-      </header>
-
-      <main style={styles.main}>
-        <h3>Welcome, Prof. Okanda 👋</h3>
-
-        <section aria-label="Your courses">
-          {courses.map(course => (
-            <div key={course.id} style={styles.card}>
-              <div>
-                <strong>{course.name}</strong>
-                <p style={styles.code}>{course.code} · {course.students} students</p>
-              </div>
-              <button
-                aria-label={`Start attendance session for ${course.name}`}
-                style={styles.button}
-                onClick={() => setActiveSession(course)}
-              >
-                Start Session
-              </button>
-            </div>
-          ))}
-        </section>
-
-        {activeSession && (
-          <section aria-label="Active attendance session" style={styles.qrSection}>
-            <h4>Active Session: {activeSession.name}</h4>
-            <p style={{ color: '#666' }}>QR Code refreshes every 7 seconds</p>
-            <div style={styles.qrBox} aria-label="QR Code display area">
-              <p style={{ color: '#999', fontSize: '0.9rem' }}>[ QR Code Displays Here ]</p>
-              <p style={{ fontSize: '1.5rem' }}>⬛⬛⬛</p>
-              <p style={styles.timer}>Next refresh in: <strong>7s</strong></p>
-            </div>
-            <div style={styles.counter}>
-              <span>Students Present: <strong>0 / {activeSession.students}</strong></span>
-              <button aria-label="End session" onClick={() => setActiveSession(null)} style={styles.endButton}>End Session</button>
-            </div>
-          </section>
-        )}
-      </main>
-    </div>
-  );
-}
-
-const styles = {
-  container: { minHeight: '100vh', background: '#f0f4f8' },
-  header: { background: '#1a237e', color: '#fff', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  headerText: { margin: 0, color: '#fff' },
-  logout: { background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer' },
-  main: { padding: '2rem', maxWidth: '800px', margin: '0 auto' },
-  card: { background: '#fff', padding: '1rem 1.5rem', borderRadius: '10px', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' },
-  code: { color: '#888', fontSize: '0.85rem', margin: '0.25rem 0 0' },
-  button: { background: '#1a237e', color: '#fff', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '6px', cursor: 'pointer' },
-  qrSection: { background: '#fff', padding: '1.5rem', borderRadius: '10px', marginTop: '1rem', boxShadow: '0 2px 8px rgba(0,0,0,0.07)', textAlign: 'center' },
-  qrBox: { border: '2px dashed #1a237e', borderRadius: '10px', padding: '2rem', margin: '1rem auto', maxWidth: '250px' },
-  timer: { color: '#e53935', marginTop: '0.5rem' },
-  counter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', padding: '0 0.5rem' },
-  endButton: { background: '#e53935', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer' },
-};
-</file>
-
-<file path="client/src/pages/Login.jsx">
-import { useNavigate } from 'react-router-dom';
-
-export default function Login() {
-  const navigate = useNavigate();
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    const role = e.target.role.value;
-    if (role === 'student') navigate('/student');
-    else if (role === 'lecturer') navigate('/lecturer');
-    else navigate('/admin');
-  };
-
-  return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>Welcome to MySignInUp</h1>
-        <p style={styles.subtitle}>Sign in to continue</p>
-        <form onSubmit={handleLogin} style={styles.form}>
-          <input aria-label="Email address" type="email" placeholder="Email" required style={styles.input} />
-          <input aria-label="Password" type="password" placeholder="Password" required style={styles.input} />
-          <select name="role" aria-label="Select your role" style={styles.input}>
-            <option value="student">Student</option>
-            <option value="lecturer">Lecturer</option>
-            <option value="admin">Administrator</option>
-          </select>
-          <button type="submit" style={styles.button}>Login</button>
-        </form>
-        <p style={styles.back} onClick={() => navigate('/')} role="button" aria-label="Go back to welcome page">← Back to Home</p>
-      </div>
-    </div>
-  );
-}
-
-const styles = {
-  container: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f4f8' },
-  card: { background: '#fff', padding: '2.5rem', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', width: '100%', maxWidth: '400px' },
-  title: { textAlign: 'center', color: '#1a237e', marginBottom: '0.25rem' },
-  subtitle: { textAlign: 'center', color: '#666', marginBottom: '1.5rem' },
-  form: { display: 'flex', flexDirection: 'column', gap: '1rem' },
-  input: { padding: '0.75rem', borderRadius: '8px', border: '1px solid #ddd', fontSize: '1rem' },
-  button: { padding: '0.75rem', background: '#1a237e', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '1rem', cursor: 'pointer' },
-  back: { textAlign: 'center', marginTop: '1rem', color: '#1a237e', cursor: 'pointer', fontSize: '0.9rem' },
-};
-</file>
-
-<file path="client/src/pages/StudentDashboard.jsx">
-import { useNavigate } from 'react-router-dom';
-
-const courses = [
-  { id: 1, name: 'Software Engineering', code: 'SWE3090', attendance: 85 },
-  { id: 2, name: 'Database Systems', code: 'BIS3050', attendance: 72 },
-  { id: 3, name: 'Web Development', code: 'BIS3020', attendance: 90 },
-];
-
-export default function StudentDashboard() {
-  const navigate = useNavigate();
-
-  return (
-    <div style={styles.container}>
-      <header style={styles.header}>
-        <h2 style={styles.headerText}>Student Portal</h2>
-        <button aria-label="Logout" onClick={() => navigate('/')} style={styles.logout}>Logout</button>
-      </header>
-
-      <main style={styles.main}>
-        <h3>Welcome, Fateh 👋</h3>
-        <p style={{ color: '#666' }}>Select a course to mark attendance</p>
-
-        <section aria-label="Enrolled courses">
-          {courses.map(course => (
-            <div key={course.id} style={styles.card}>
-              <div>
-                <strong>{course.name}</strong>
-                <p style={styles.code}>{course.code}</p>
-              </div>
-              <div style={styles.right}>
-                <span style={{ ...styles.badge, background: course.attendance >= 75 ? '#e8f5e9' : '#ffebee', color: course.attendance >= 75 ? '#2e7d32' : '#c62828' }}>
-                  {course.attendance}%
-                </span>
-                <button aria-label={`Mark attendance for ${course.name}`} style={styles.button}>
-                  Scan QR
-                </button>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section aria-label="Attendance summary" style={styles.summary}>
-          <h4>Attendance Summary</h4>
-          <table style={styles.table} aria-label="Course attendance table">
-            <thead>
-              <tr style={styles.tableHeader}>
-                <th>Course</th><th>Code</th><th>Attendance</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {courses.map(c => (
-                <tr key={c.id} style={styles.tableRow}>
-                  <td>{c.name}</td>
-                  <td>{c.code}</td>
-                  <td>{c.attendance}%</td>
-                  <td style={{ color: c.attendance >= 75 ? 'green' : 'red' }}>
-                    {c.attendance >= 75 ? '✅ On Track' : '⚠️ At Risk'}
+                  <td style={styles.td}>{u.name}</td>
+                  <td style={styles.td}>{u.role}</td>
+                  <td style={styles.td}>
+                    <span style={{
+                      ...styles.statusBadge,
+                      background: u.status === 'Active' ? '#e8f5e9' : '#ffebee',
+                      color: u.status === 'Active' ? '#2e7d32' : '#d32f2f'
+                    }}>
+                      {u.status}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -355,87 +677,844 @@ export default function StudentDashboard() {
 }
 
 const styles = {
-  container: { minHeight: '100vh', background: '#f0f4f8' },
-  header: { background: '#1a237e', color: '#fff', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  headerText: { margin: 0, color: '#fff' },
-  logout: { background: 'transparent', border: '1px solid #fff', color: '#fff', padding: '0.4rem 1rem', borderRadius: '6px', cursor: 'pointer' },
-  main: { padding: '2rem', maxWidth: '800px', margin: '0 auto' },
-  card: { background: '#fff', padding: '1rem 1.5rem', borderRadius: '10px', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' },
-  code: { color: '#888', fontSize: '0.85rem', margin: '0.25rem 0 0' },
-  right: { display: 'flex', alignItems: 'center', gap: '1rem' },
-  badge: { padding: '0.3rem 0.75rem', borderRadius: '20px', fontWeight: 'bold', fontSize: '0.85rem' },
-  button: { background: '#1a237e', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer' },
-  summary: { background: '#fff', padding: '1.5rem', borderRadius: '10px', marginTop: '1.5rem', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' },
-  table: { width: '100%', borderCollapse: 'collapse', marginTop: '1rem' },
-  tableHeader: { background: '#f5f5f5', textAlign: 'left' },
+  layout: { display: 'flex', minHeight: '100vh', background: '#f4f7f9', fontFamily: "'Inter', 'Atkinson Hyperlegible', sans-serif" },
+  sidebar: { width: '250px', background: '#0d1b2a', color: '#fff', display: 'flex', flexDirection: 'column', padding: '1.5rem' },
+  sidebarHeader: { marginBottom: '2rem' },
+  logo: { margin: 0, fontSize: '1.4rem', borderBottom: '1px solid #ffffff20', paddingBottom: '1rem', letterSpacing: '0.5px' },
+  nav: { flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' },
+  navLink: { cursor: 'pointer', opacity: 0.7, margin: 0, padding: '0.75rem 1rem', borderRadius: '6px', transition: 'background 0.2s' },
+  activeNavLink: { cursor: 'pointer', fontWeight: 'bold', margin: 0, background: '#1b263b', padding: '0.75rem 1rem', borderRadius: '6px' },
+  sidebarFooter: { borderTop: '1px solid #ffffff20', paddingTop: '1.5rem' },
+  profileBox: { marginBottom: '1rem' },
+  logoutBtn: { width: '100%', background: 'transparent', border: '1px solid #ffffff50', color: '#fff', padding: '0.6rem', borderRadius: '6px', cursor: 'pointer', transition: 'background 0.2s' },
+  main: { flex: 1, padding: '2rem', overflowY: 'auto' },
+  header: { marginBottom: '2rem' },
+  greetingBox: { background: '#fff', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
+  statsRow: { display: 'flex', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' },
+  stat: { background: '#fff', flex: '1 1 200px', padding: '1.5rem', borderRadius: '8px', textAlign: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
+  statNumber: { fontSize: '2rem', color: '#1a237e', display: 'block', marginBottom: '0.25rem' },
+  statLabel: { margin: 0, color: '#666', fontSize: '0.9rem', fontWeight: '500' },
+  section: { background: '#fff', padding: '1.5rem', borderRadius: '8px', marginBottom: '1.5rem', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
+  alertRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderRadius: '6px', marginBottom: '0.75rem' },
+  dismissBtn: { background: 'transparent', border: '1px solid currentColor', color: '#333', padding: '0.4rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '600' },
+  table: { width: '100%', borderCollapse: 'collapse', marginTop: '0.5rem' },
+  tableHeader: { borderBottom: '2px solid #eee' },
+  th: { textAlign: 'left', padding: '1rem 0.5rem', color: '#666', fontWeight: '600', fontSize: '0.9rem' },
   tableRow: { borderBottom: '1px solid #eee' },
+  td: { padding: '1rem 0.5rem', color: '#333', fontSize: '0.95rem' },
+  statusBadge: { padding: '0.3rem 0.6rem', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 'bold' },
+  exportBtn: { background: '#1a237e', color: '#fff', border: 'none', padding: '0.6rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem', display: 'flex', alignItems: 'center' },
 };
 </file>
 
-<file path="client/src/App.css">
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+<file path="client/src/pages/LecturerDashboard.jsx">
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
+
+const courses = [
+  { id: 1, name: 'Software Engineering', code: 'SWE3090', students: 45 },
+  { id: 2, name: 'Database Systems', code: 'BIS3050', students: 38 },
+  { id: 3, name: 'Business Application Dev', code: 'IST3010', students: 50 },
+];
+
+// SVG Icons
+const PlayIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', verticalAlign: 'middle' }}><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+);
+const StopIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', verticalAlign: 'middle' }}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+);
+const ClockIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', verticalAlign: 'middle' }}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+);
+
+export default function LecturerDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(7);
+  const [qrData, setQrData] = useState('');
+  const [anomalies, setAnomalies] = useState([]);
+
+  // 1. Check Authentication on Load
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (!storedUser) {
+      navigate('/');
+    } else {
+      setUser(JSON.parse(storedUser));
+      // --- STEP 2 GOES HERE: Fetch the security logs ---
+      const fetchAnomalies = async () => {
+        try {
+          const response = await fetch('/api/sessions/anomalies');
+          if (response.ok) {
+            const data = await response.json();
+            setAnomalies(data);
+          }
+        } catch (err) {
+          console.error("Failed to fetch anomalies", err);
+        }
+      };
+
+      fetchAnomalies(); // Trigger the fetch
+    }
+  }, [navigate]);
+
+
+  // 2. The Real 7-Second Dynamic QR Code Engine linking to the Database
+  useEffect(() => {
+    let rotationInterval;
+    let countdownInterval;
+
+    if (activeSession && activeSession.dbSessionId) {
+      generateAndSaveToken(activeSession.code, activeSession.dbSessionId);
+
+      rotationInterval = setInterval(() => {
+        generateAndSaveToken(activeSession.code, activeSession.dbSessionId);
+        setTimeLeft(7);
+      }, 7000);
+
+      countdownInterval = setInterval(() => {
+        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 7));
+      }, 1000);
+    }
+
+    return () => {
+      clearInterval(rotationInterval);
+      clearInterval(countdownInterval);
+    };
+  }, [activeSession]);
+
+  // --- API CALLS ---
+
+  const handleStartSession = async (course) => {
+    try {
+      const response = await fetch('http://localhost:5000/api/sessions/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ courseId: course.code, lecturerId: user.user_id })
+      });
+      const data = await response.json();
+      
+      if (response.ok) {
+        setActiveSession({ ...course, dbSessionId: data.session_id });
+      }
+    } catch (err) {
+      console.error("Failed to start session on server", err);
+    }
+  };
+
+  const generateAndSaveToken = async (courseCode, dbSessionId) => {
+    const secureToken = crypto.randomUUID() + '-' + Date.now();
+    const qrPayload = JSON.stringify({ course: courseCode, token: secureToken, timestamp: Date.now() });
+    
+    setQrData(qrPayload);
+
+    try {
+      await fetch('http://localhost:5000/api/sessions/rotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: dbSessionId, token: secureToken })
+      });
+    } catch (err) {
+      console.error("Failed to save rotating token", err);
+    }
+  };
+
+  const handleEndSession = async () => {
+    try {
+      await fetch('/api/sessions/end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: activeSession.dbSessionId })
+      });
+      setActiveSession(null);
+    } catch (err) {
+      console.error("Failed to end session", err);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/');
+  };
+
+  if (!user) return null;
+
+  return (
+    <div style={styles.layout}>
+      {/* SIDEBAR */}
+      <aside style={styles.sidebar}>
+        <div style={styles.sidebarHeader}>
+          <h2 style={styles.logo}>MySignInApp</h2>
+        </div>
+        <nav style={styles.nav}>
+          <p style={styles.activeNavLink}>Dashboard</p>
+          <p style={styles.navLink}>Sessions</p>
+          <p style={styles.navLink}>Reports</p>
+        </nav>
+        <div style={styles.sidebarFooter}>
+          <div style={styles.profileBox}>
+            <p style={{ fontWeight: 'bold', margin: 0 }}>Prof. {user.last_name || 'Okanda'}</p>
+            <p style={{ fontSize: '0.8rem', color: '#ccc', margin: 0 }}>Lecturer</p>
+          </div>
+          <button aria-label="Logout" onClick={handleLogout} style={styles.logoutBtn}>Logout</button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main style={styles.main}>
+        <header style={styles.header}>
+          <div style={{...styles.greetingBox, borderLeft: '5px solid #1a237e'}}>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#333' }}>Welcome back, Prof. {user.last_name || 'Okanda'}.</h3>
+            <p style={{ color: '#666', margin: 0 }}>Manage your courses and live attendance sessions below.</p>
+          </div>
+        </header>
+         {/* STEP 3: SECURITY ANOMALY FEED */}
+      {anomalies.length > 0 && (
+        <div style={{ background: '#ffebee', borderLeft: '5px solid #d32f2f', padding: '1rem', marginBottom: '2rem', borderRadius: '4px' }}>
+          <h3 style={{ color: '#d32f2f', marginTop: 0 }}>🚨 Security Alerts (Recent)</h3>
+          <ul style={{ listStyleType: 'none', padding: 0, margin: 0 }}>
+            {anomalies.map((log, index) => (
+              <li key={index} style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#424242' }}>
+                <strong>{new Date(log.created_at).toLocaleTimeString()}:</strong> {log.flag_reason} 
+                <br />
+                <span style={{ fontSize: '0.8rem', color: '#757575' }}>Attempted by ID: {log.attempted_student_id}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+        {activeSession ? (
+          <section aria-label="Active attendance session" style={styles.activeSessionCard}>
+            <div style={styles.sessionHeader}>
+              <div>
+                <span style={styles.liveBadge}>
+                  <ClockIcon /> LIVE SESSION
+                </span>
+                <h4 style={{ margin: '0.5rem 0 0', fontSize: '1.2rem', color: '#222' }}>{activeSession.code}: {activeSession.name}</h4>
+              </div>
+              <button aria-label="End session" onClick={handleEndSession} style={styles.endButton}>
+                <StopIcon /> End Session
+              </button>
+            </div>
+
+            <div style={styles.sessionBody}>
+              <div style={styles.qrContainer}>
+                <div style={styles.qrBox} aria-label="QR Code display area">
+                  <QRCodeSVG 
+                    value={qrData} 
+                    size={200} 
+                    bgColor={"#ffffff"}
+                    fgColor={"#1a237e"}
+                    level={"Q"}
+                    includeMargin={false}
+                  />
+                </div>
+                <p style={styles.timerText}>
+                  Code rotates in <strong style={{ color: '#1a237e', fontSize: '1.2rem' }}>{timeLeft}s</strong>
+                </p>
+                <p style={{ fontSize: '0.85rem', color: '#666' }}>Dynamic encryption enabled to prevent sharing</p>
+              </div>
+
+              <div style={styles.statsContainer}>
+                <div style={styles.statBox}>
+                  <p style={{ margin: 0, color: '#666', fontWeight: '600' }}>Live Attendance</p>
+                  <h2 style={{ margin: '0.5rem 0 0', color: '#1a237e', fontSize: '2.5rem' }}>0 / {activeSession.students}</h2>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#888' }}>Students Present</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section style={styles.courseGrid}>
+            <h4 style={{ margin: '0 0 0.5rem 0', color: '#333', width: '100%' }}>My Courses</h4>
+            {courses.map(course => (
+              <div key={course.id} style={styles.card}>
+                <div>
+                  <strong style={{ fontSize: '1.1rem', color: '#222' }}>{course.name}</strong>
+                  <p style={styles.code}>{course.code} • {course.students} Enrolled</p>
+                </div>
+                <button
+                  aria-label={`Start attendance session for ${course.name}`}
+                  style={styles.startBtn}
+                  onClick={() => handleStartSession(course)}
+                >
+                  <PlayIcon /> Create Session
+                </button>
+              </div>
+            ))}
+          </section>
+        )}
+      </main>
+    </div>
+  );
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+const styles = {
+  layout: { display: 'flex', minHeight: '100vh', background: '#f4f7f9', fontFamily: "'Inter', 'Atkinson Hyperlegible', sans-serif" },
+  sidebar: { width: '250px', background: '#0d1b2a', color: '#fff', display: 'flex', flexDirection: 'column', padding: '1.5rem' },
+  sidebarHeader: { marginBottom: '2rem' },
+  logo: { margin: 0, fontSize: '1.4rem', borderBottom: '1px solid #ffffff20', paddingBottom: '1rem', letterSpacing: '0.5px' },
+  nav: { flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' },
+  navLink: { cursor: 'pointer', opacity: 0.7, margin: 0, padding: '0.75rem 1rem', borderRadius: '6px', transition: 'background 0.2s' },
+  activeNavLink: { cursor: 'pointer', fontWeight: 'bold', margin: 0, background: '#1b263b', padding: '0.75rem 1rem', borderRadius: '6px' },
+  sidebarFooter: { borderTop: '1px solid #ffffff20', paddingTop: '1.5rem' },
+  profileBox: { marginBottom: '1rem' },
+  logoutBtn: { width: '100%', background: 'transparent', border: '1px solid #ffffff50', color: '#fff', padding: '0.6rem', borderRadius: '6px', cursor: 'pointer', transition: 'background 0.2s' },
+  main: { flex: 1, padding: '2rem', overflowY: 'auto' },
+  header: { marginBottom: '2rem' },
+  greetingBox: { background: '#fff', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
+  courseGrid: { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  card: { background: '#fff', padding: '1.5rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
+  code: { color: '#666', fontSize: '0.9rem', margin: '0.3rem 0 0' },
+  startBtn: { background: '#1a237e', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.9rem', display: 'flex', alignItems: 'center' },
+  activeSessionCard: { background: '#fff', padding: '2rem', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' },
+  sessionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #eee', paddingBottom: '1.5rem', marginBottom: '1.5rem' },
+  liveBadge: { background: '#ffebee', color: '#c62828', padding: '0.4rem 0.8rem', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 'bold', border: '1px solid #ffcdd2', display: 'inline-flex', alignItems: 'center' },
+  endButton: { background: '#d32f2f', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.9rem', display: 'flex', alignItems: 'center' },
+  sessionBody: { display: 'flex', gap: '2rem', flexWrap: 'wrap' },
+  qrContainer: { flex: '2 1 300px', textAlign: 'center', padding: '2rem', border: '2px dashed #cfd8dc', borderRadius: '8px', background: '#f8f9fa' },
+  qrBox: { background: '#fff', padding: '1rem', display: 'inline-block', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', marginBottom: '1rem' },
+  timerText: { fontSize: '1.1rem', margin: '0 0 0.5rem 0', color: '#333' },
+  statsContainer: { flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: '1rem' },
+  statBox: { background: '#f8f9fa', padding: '2rem', borderRadius: '8px', textAlign: 'center', border: '1px solid #eceff1', display: 'flex', flexDirection: 'column', justifyContent: 'center' }
+};
+</file>
+
+<file path="client/src/pages/Login.jsx">
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+export default function Login() {
+  const navigate = useNavigate();
+  
+  // State to hold form inputs and UI status
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('Student');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError(''); // Clear any previous errors
+    setIsLoading(true);
+
+    try {
+      // Send the login request to your Node.js backend
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      // If the backend sends back an error (like Invalid Credentials), throw it
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to login');
+      }
+
+      // Success! Save the JWT token and user details to localStorage
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+
+      // Route the user to the correct dashboard based on their database role
+      if (data.user.role === 'Student') {
+        navigate('/student');
+      } else if (data.user.role === 'Lecturer') {
+        navigate('/lecturer');
+      } else {
+        navigate('/admin');
+      }
+
+    } catch (err) {
+      setError(err.message); // Display the error on the screen
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <h1 style={styles.title}>MySignInApp</h1>
+        <p style={styles.subtitle}>Sign in to continue</p>
+        
+        {/* Display error messages dynamically */}
+        {error && <div style={styles.errorMessage}>{error}</div>}
+        
+        <form onSubmit={handleLogin} style={styles.form}>
+          <input 
+            aria-label="Email address" 
+            type="email" 
+            placeholder="Email" 
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required 
+            style={styles.input} 
+          />
+          <input 
+            aria-label="Password" 
+            type="password" 
+            placeholder="Password" 
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required 
+            style={styles.input} 
+          />
+          
+          <select 
+            name="role" 
+            aria-label="Select your role" 
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            style={styles.input}
+          >
+            <option value="Student">Student</option>
+            <option value="Lecturer">Lecturer</option>
+            <option value="Admin">Admin</option>
+          </select>
+          
+          <button type="submit" disabled={isLoading} style={styles.button}>
+            {isLoading ? 'Authenticating...' : 'Login'}
+          </button>
+        </form>
+        
+       <div style={styles.footer}>
+          <p style={{ ...styles.adminLink, marginTop: '10px' }} onClick={() => navigate('/register')} role="button">
+            Need an account? Register here
+          </p>
+        </div> 
+      </div>
+    </div>
+  );
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+const styles = {
+  container: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f4f7f9' },
+  card: { background: '#fff', padding: '2.5rem', borderRadius: '8px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', width: '100%', maxWidth: '400px' },
+  title: { textAlign: 'center', color: '#1a237e', marginBottom: '0.25rem', fontSize: '2rem', letterSpacing: '-0.5px' },
+  subtitle: { textAlign: 'center', color: '#666', marginBottom: '1.5rem', fontSize: '0.95rem' },
+  form: { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  input: { padding: '0.75rem', borderRadius: '6px', border: '1px solid #ddd', fontSize: '1rem', background: '#fff' },
+  button: { padding: '0.8rem', background: '#1a237e', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '1rem', cursor: 'pointer', fontWeight: '600' },
+  errorMessage: { color: '#d32f2f', background: '#fdecea', padding: '0.75rem', borderRadius: '6px', fontSize: '0.9rem', textAlign: 'center', marginBottom: '1rem', border: '1px solid #f5c2c7' },
+  footer: { marginTop: '1.5rem', borderTop: '1px solid #eee', paddingTop: '1rem', textAlign: 'center' },
+  adminLink: { color: '#999', cursor: 'pointer', fontSize: '0.85rem', textDecoration: 'none', fontWeight: '500' },
+};
+</file>
+
+<file path="client/src/pages/StudentDashboard.jsx">
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { Scanner } from '@yudiel/react-qr-scanner'; // <-- Imported the scanner
+import fpPromise from '@fingerprintjs/fingerprintjs';
+
+// Mock data showing attendance trends over 4 weeks
+const weeklyAttendanceData = [
+  { week: 'Week 1', SWE3090: 100, BIS3050: 100, BIS3020: 100 },
+  { week: 'Week 2', SWE3090: 90, BIS3050: 85, BIS3020: 100 },
+  { week: 'Week 3', SWE3090: 85, BIS3050: 75, BIS3020: 95 },
+  { week: 'Week 4', SWE3090: 85, BIS3050: 72, BIS3020: 90 },
+];
+
+const courses = [
+  { id: 1, name: 'Software Engineering', code: 'SWE3090', attendance: 85 },
+  { id: 2, name: 'Database Systems', code: 'BIS3050', attendance: 72 },
+  { id: 3, name: 'Web Development', code: 'BIS3020', attendance: 90 },
+];
+
+// SVG Icons
+const AlertIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', verticalAlign: 'middle' }}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+);
+const CheckIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px', verticalAlign: 'middle' }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+);
+
+export default function StudentDashboard() {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [deviceId, setDeviceId] = useState(null);
+
+  // Generate the Device Fingerprint silently in the background
+  useEffect(() => {
+    const getFingerprint = async () => {
+      const fp = await fpPromise.load();
+      const result = await fp.get();
+      setDeviceId(result.visitorId);
+    };
+    getFingerprint();
+  }, []);
+  
+  // Scanner State
+  const [isScanning, setIsScanning] = useState(false);
+  const [activeCourseToScan, setActiveCourseToScan] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState('');
+
+  // 1. Check Authentication
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (!storedUser) {
+      navigate('/');
+    } else {
+      const parsedUser = JSON.parse(storedUser);
+      if (parsedUser.role !== 'Student') navigate('/');
+      setUser(parsedUser);
+    }
+  }, [navigate]);
+
+  const isAtRisk = courses.some(course => course.attendance < 75);
+  const averageAttendance = Math.round(courses.reduce((acc, curr) => acc + curr.attendance, 0) / courses.length);
+
+  // 2. Open Scanner Modal
+  const openScanner = (courseCode) => {
+    if (!deviceId) {
+      alert("Security check loading... Please wait 2 seconds and try again.");
+      return;
+    }
+    setActiveCourseToScan(courseCode);
+    setIsScanning(true);
+    setScanResult(null);
+    setScanError('');
+  };
+
+  // 3. Handle the QR Code Scan and Send to Database
+  const handleScan = async (scannedText) => {
+    if (!scannedText || scanResult) return; 
+    
+    try {
+      const qrData = JSON.parse(scannedText);
+      
+      if (qrData.course !== activeCourseToScan) {
+        setScanError(`You scanned a code for ${qrData.course}, but you selected ${activeCourseToScan}.`);
+        return;
+      }
+
+      setIsScanning(false); // Close the camera immediately
+
+      // Send the token to the Node.js backend to verify and log attendance
+      const response = await fetch('/api/sessions/attend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          token: qrData.token, 
+          studentId: user.user_id,
+          deviceId: deviceId
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // If the server rejects it (e.g., token expired, already signed in)
+        setScanError(result.error);
+      } else {
+        // If the server accepts it!
+        setScanResult({
+          course: qrData.course,
+          status: 'Attendance Logged Successfully!',
+          token: qrData.token
+        });
+      }
+      
+    } catch (err) {
+      setScanError(`Debug Error: ${err.message}`);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/');
+  };
+
+  if (!user) return null;
+
+  return (
+    <div style={styles.layout}>
+      {/* SCANNER MODAL OVERLAY */}
+      {isScanning && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <h3 style={{ margin: '0 0 1rem 0', color: '#1a237e' }}>Scanning for {activeCourseToScan}</h3>
+            {scanError && <p style={styles.errorText}>{scanError}</p>}
+            
+            <div style={styles.cameraContainer}>
+              <Scanner 
+              onScan={(detectedCodes) => {
+                  // The new library version returns an array of codes. We want the first one!
+                  if (detectedCodes && detectedCodes.length > 0) {
+                    handleScan(detectedCodes[0].rawValue);
+                  }
+                }}
+              
+                onError={(err) => console.log(err)}
+                options={{ delayBetweenScanAttempts: 300 }}
+              />
+            </div>
+            
+            <button onClick={() => setIsScanning(false)} style={styles.cancelBtn}>
+              Cancel Scan
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SIDEBAR */}
+      <aside style={styles.sidebar}>
+        <div style={styles.sidebarHeader}>
+          <h2 style={styles.logo}>MySignInApp</h2>
+        </div>
+        <nav style={styles.nav}>
+          <p style={styles.activeNavLink}>Dashboard</p>
+          <p style={styles.navLink}>My Courses</p>
+          <p style={styles.navLink}>History</p>
+        </nav>
+        <div style={styles.sidebarFooter}>
+          <div style={styles.profileBox}>
+            <p style={{ fontWeight: 'bold', margin: 0 }}>{user.first_name} {user.last_name}</p>
+            <p style={{ fontSize: '0.8rem', color: '#ccc', margin: 0 }}>Student</p>
+            {/* Debugging: See the fingerprint! */}
+            <p style={{ fontSize: '0.6rem', color: '#888', margin: '5px 0 0 0', wordBreak: 'break-all' }}>
+              Device: {deviceId || 'Loading...'}
+            </p>
+          </div>
+          <button aria-label="Logout" onClick={handleLogout} style={styles.logoutBtn}>Logout</button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main style={styles.main}>
+        <header style={styles.header}>
+          <div style={{...styles.greetingBox, borderLeft: isAtRisk ? '5px solid #d32f2f' : '5px solid #2e7d32'}}>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#333' }}>Welcome back, {user.first_name}.</h3>
+            
+            {isAtRisk ? (
+              <div role="alert" style={{ display: 'flex', alignItems: 'center', color: '#d32f2f', fontWeight: 'bold' }}>
+                <AlertIcon />
+                <span>Action Required: Your attendance in one or more courses has fallen below the 75% threshold.</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', color: '#2e7d32', fontWeight: 'bold' }}>
+                <CheckIcon />
+                <span>Status Good: You are on track with an average of {averageAttendance}% attendance.</span>
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* SCAN SUCCESS BANNER */}
+        {scanResult && (
+          <div style={styles.successBanner}>
+            <CheckIcon />
+            <span style={{ fontWeight: 'bold', marginRight: '10px' }}>Successfully Scanned {scanResult.course}!</span> 
+            <span style={{ fontSize: '0.9rem', opacity: 0.8 }}>Token: {scanResult.token.substring(0, 15)}...</span>
+            <button onClick={() => setScanResult(null)} style={styles.dismissBtn}>Dismiss</button>
+          </div>
+        )}
+
+        <div style={styles.topRow}>
+          {/* LINE CHART COMPONENT */}
+          <section style={styles.chartCard} aria-label="Attendance trends line chart">
+            <h4 style={{ margin: '0 0 1.5rem 0', color: '#333' }}>Attendance Trends</h4>
+            <div style={{ width: '100%', height: 250 }}>
+              <ResponsiveContainer>
+                <LineChart data={weeklyAttendanceData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                  <XAxis dataKey="week" tick={{fill: '#666', fontSize: 12}} axisLine={false} tickLine={false} />
+                  <YAxis tick={{fill: '#666', fontSize: 12}} axisLine={false} tickLine={false} domain={[0, 100]} />
+                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                  <Line type="monotone" dataKey="SWE3090" stroke="#1a237e" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="BIS3050" stroke="#d32f2f" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="BIS3020" stroke="#0288d1" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </section>
+
+          {/* COURSE CARDS */}
+          <section style={styles.courseGrid}>
+            <h4 style={{ margin: '0 0 0.5rem 0', color: '#333', width: '100%' }}>Active Courses</h4>
+            {courses.map(course => (
+              <div key={course.id} style={styles.card}>
+                <div>
+                  <strong style={{ fontSize: '1.1rem', color: '#222' }}>{course.name}</strong>
+                  <p style={styles.code}>{course.code}</p>
+                </div>
+                <div style={styles.right}>
+                  <div style={{ 
+                    ...styles.badge, 
+                    background: course.attendance >= 75 ? '#e8f5e9' : '#ffebee', 
+                    color: course.attendance >= 75 ? '#2e7d32' : '#d32f2f',
+                    border: course.attendance >= 75 ? '1px solid #c8e6c9' : '1px solid #ffcdd2'
+                  }}>
+                    {course.attendance >= 75 ? 'On Track' : 'At Risk'} • {course.attendance}%
+                  </div>
+                  {/* UPDATE: The Scan button now opens the modal for the specific course */}
+                  <button 
+                    aria-label={`Scan QR for ${course.code}`} 
+                    onClick={() => openScanner(course.code)}
+                    style={styles.scanBtn}
+                  >
+                    Scan QR
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+        </div>
+      </main>
+    </div>
+  );
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
+const styles = {
+  layout: { 
+    display: 'flex', 
+    minHeight: '100vh', 
+    background: '#f4f7f9', 
+    fontFamily: "'Inter', sans-serif", 
+    position: 'relative',
+    flexDirection: window.innerWidth < 768 ? 'column' : 'row' 
+  },
+  sidebar: { 
+    width: window.innerWidth < 768 ? '100%' : '250px', 
+    background: '#0d1b2a', 
+    color: '#fff', 
+    display: 'flex', 
+    flexDirection: window.innerWidth < 768 ? 'column' : 'column', 
+    padding: window.innerWidth < 768 ? '1rem' : '1.5rem', 
+    zIndex: 10,
+    alignItems: 'center'
+  },
+  sidebarHeader: { marginBottom: '2rem' },
+  logo: { margin: 0, fontSize: '1.4rem', borderBottom: '1px solid #ffffff20', paddingBottom: '1rem', letterSpacing: '0.5px' },
+  nav: { 
+    flex: 1, 
+    display: 'flex', 
+    flexDirection: window.innerWidth < 768 ? 'row' : 'column', 
+    gap: window.innerWidth < 768 ? '1rem' : '0.5rem',
+    width: '100%',
+    justifyContent: window.innerWidth < 768 ? 'center' : 'flex-start',
+    margin: window.innerWidth < 768 ? '1rem 0' : '0'
+  },
+  navLink: { cursor: 'pointer', opacity: 0.7, margin: 0, padding: '0.75rem 1rem', borderRadius: '6px', transition: 'background 0.2s' },
+  activeNavLink: { cursor: 'pointer', fontWeight: 'bold', margin: 0, background: '#1b263b', padding: '0.75rem 1rem', borderRadius: '6px' },
+  sidebarFooter: { borderTop: '1px solid #ffffff20', paddingTop: '1.5rem' },
+  profileBox: { marginBottom: '1rem' },
+  logoutBtn: { width: '100%', background: 'transparent', border: '1px solid #ffffff50', color: '#fff', padding: '0.6rem', borderRadius: '6px', cursor: 'pointer', transition: 'background 0.2s' },
+  main: { 
+    flex: 1, 
+    padding: window.innerWidth < 768 ? '1rem' : '2rem', 
+    overflowY: 'auto' 
+  },
+  header: { marginBottom: '1.5rem' },
+  greetingBox: { background: '#fff', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
+  topRow: { display: 'flex', gap: '2rem', alignItems: 'flex-start', flexWrap: 'wrap' },
+  chartCard: { background: '#fff', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)', flex: '1 1 400px', minWidth: '300px' },
+  courseGrid: { flex: '1 1 400px', display: 'flex', flexDirection: 'column', gap: '1rem' },
+  card: { background: '#fff', padding: '1.5rem', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
+  code: { color: '#666', fontSize: '0.9rem', margin: '0.3rem 0 0' },
+  right: { display: 'flex', alignItems: 'center', gap: '1.5rem' },
+  badge: { padding: '0.4rem 0.8rem', borderRadius: '4px', fontWeight: '600', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' },
+  scanBtn: { background: '#1a237e', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.9rem' },
+  
+  // New Styles for Scanner Modal & Success Banner
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
+  modalContent: { background: '#fff', padding: '2rem', borderRadius: '12px', width: '90%', maxWidth: '400px', textAlign: 'center' },
+  cameraContainer: { overflow: 'hidden', borderRadius: '8px', border: '2px solid #1a237e', marginBottom: '1rem' },
+  cancelBtn: { background: '#d32f2f', color: '#fff', border: 'none', padding: '0.8rem', width: '100%', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' },
+  errorText: { color: '#d32f2f', background: '#ffebee', padding: '0.5rem', borderRadius: '4px', fontSize: '0.9rem', marginBottom: '1rem' },
+  successBanner: { background: '#e8f5e9', border: '1px solid #4caf50', color: '#2e7d32', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  dismissBtn: { background: 'transparent', border: '1px solid #2e7d32', color: '#2e7d32', padding: '0.3rem 0.8rem', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }
+};
 </file>
 
 <file path="client/src/App.jsx">
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import StudentDashboard from './pages/StudentDashboard';
 import LecturerDashboard from './pages/LecturerDashboard';
 import AdminPanel from './pages/AdminPanel';
 
+// The Security Wrapper
+const ProtectedRoute = ({ children, allowedRole }) => {
+  const userString = localStorage.getItem('user');
+
+  // 1. Not logged in at all? Kick to the home/login page.
+  if (!userString) {
+    return <Navigate to="/" replace />;
+  }
+
+  try {
+    const user = JSON.parse(userString);
+
+    // 2. Logged in, but wrong role? Kick to their proper dashboard.
+    if (user.role !== allowedRole) {
+      if (user.role === 'lecturer') return <Navigate to="/lecturer" replace />;
+      if (user.role === 'admin') return <Navigate to="/admin" replace />;
+      return <Navigate to="/student" replace />; // Default fallback
+    }
+
+    // 3. If they pass the checks, let them see the page!
+    return children;
+    
+  } catch (error) {
+    // If the data is corrupted, clear it and send them to the login screen safely
+    localStorage.removeItem('user');
+    return <Navigate to="/" replace />;
+  }
+};
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Login />} />
-        <Route path="/student" element={<StudentDashboard />} />
-        <Route path="/lecturer" element={<LecturerDashboard />} />
-        <Route path="/admin" element={<AdminPanel />} />
+        <Route path="/register" element={<Register />} />
+        {/* Locked to Students Only */}
+          <Route 
+            path="/student" 
+            element={
+              <ProtectedRoute allowedRole="student">
+                <StudentDashboard />
+              </ProtectedRoute>
+            } 
+          />
+          {/* Locked to Lecturers Only */}
+          <Route 
+            path="/lecturer" 
+            element={
+              <ProtectedRoute allowedRole="lecturer">
+                <LecturerDashboard />
+              </ProtectedRoute>
+            } 
+          />
+         {/* Locked to System Admins Only */}
+        <Route 
+          path="/admin" 
+          element={
+            <ProtectedRoute allowedRole="admin">
+              <AdminPanel />
+            </ProtectedRoute>
+          } 
+        /> 
       </Routes>
     </BrowserRouter>
   );
 }
+
 export default App;
 </file>
 
@@ -531,22 +1610,6 @@ export default defineConfig([
 ])
 </file>
 
-<file path="client/index.html">
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>client</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
-</file>
-
 <file path="client/package.json">
 {
   "name": "client",
@@ -560,10 +1623,14 @@ export default defineConfig([
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fingerprintjs/fingerprintjs": "^5.1.0",
+    "@yudiel/react-qr-scanner": "^2.5.1",
     "axios": "^1.13.6",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
+    "recharts": "^3.8.0",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
@@ -600,13 +1667,58 @@ The React Compiler is not enabled on this template because of its impact on dev 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
 </file>
 
+<file path="client/src/App.css">
+
+</file>
+
+<file path="client/index.html">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MySignInApp</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+</file>
+
 <file path="client/vite.config.js">
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: {
+        name: 'MySignInApp',
+        short_name: 'MySignInApp',
+        description: 'Dynamic QR Code Attendance System for USIU-A',
+        theme_color: '#1a237e',
+        background_color: '#f0f4f8',
+        display: 'standalone',
+        icons: [
+          { src: '/vite.svg', sizes: '192x192', type: 'image/svg+xml' }
+        ]
+      }
+    })
+  ],
+  server: {
+    allowedHosts: true, // <-- This tells Vite to let Cloudflare through!
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true,
+      }
+    }
+  }
 })
 </file>
 
