@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { Scanner } from '@yudiel/react-qr-scanner';
 import fpPromise from '@fingerprintjs/fingerprintjs';
 import SpeechReader from '../components/SpeechReader';
+import API_URL from '../config';
 
 const weeklyAttendanceData = [
   { week:'Wk 1',  SWE3090:100, APT1050:50,  APT3010:67  },
@@ -82,8 +83,8 @@ export default function StudentDashboard() {
       try {
         const token = localStorage.getItem('token');
         const [coursesRes, statsRes] = await Promise.all([
-          fetch('/api/sessions/student/courses',      { headers: { Authorization: `Bearer ${token}` } }),
-          fetch('/api/sessions/student/course-stats', { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/sessions/student/courses`,      { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/sessions/student/course-stats`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
         const coursesData = await coursesRes.json();
         const statsData   = statsRes.ok ? await statsRes.json() : [];
@@ -107,7 +108,7 @@ export default function StudentDashboard() {
       setLoadingHistory(true);
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('/api/sessions/student/history', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(`${API_URL}/api/sessions/student/history`, { headers: { Authorization: `Bearer ${token}` } });
         if (res.ok) setAttendanceHistory(await res.json());
       } catch (err) { console.error(err); }
       finally { setLoadingHistory(false); }
@@ -119,14 +120,21 @@ export default function StudentDashboard() {
     const fetchActiveSessions = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/api/sessions/active', { headers: { Authorization: `Bearer ${token}` } });
+        const response = await fetch(`${API_URL}/api/sessions/active`, { headers: { Authorization: `Bearer ${token}` } });
         if (response.ok) {
           const data = await response.json();
           const sessionMap = {};
-          data.forEach(session => { sessionMap[session.course_id] = { sessionId: session.session_id, deadline: session.session_deadline ? new Date(session.session_deadline) : null }; });
+          data.forEach(session => {
+            sessionMap[session.course_id] = { sessionId: session.session_id, deadline: session.session_deadline ? new Date(session.session_deadline) : null };
+          });
           setActiveSessions(sessionMap);
           const newCountdowns = {};
-          data.forEach(session => { if (session.session_deadline) { const remaining = Math.round((new Date(session.session_deadline) - new Date()) / 1000); newCountdowns[session.course_id] = Math.max(0, remaining); } });
+          data.forEach(session => {
+            if (session.session_deadline) {
+              const remaining = Math.round((new Date(session.session_deadline) - new Date()) / 1000);
+              newCountdowns[session.course_id] = Math.max(0, remaining);
+            }
+          });
           countdownRef.current = newCountdowns;
           setCountdowns({...newCountdowns});
         }
@@ -140,7 +148,9 @@ export default function StudentDashboard() {
   useEffect(() => {
     const ticker = setInterval(() => {
       const updated = {};
-      Object.keys(countdownRef.current).forEach(code => { updated[code] = Math.max(0, countdownRef.current[code] - 1); });
+      Object.keys(countdownRef.current).forEach(code => {
+        updated[code] = Math.max(0, countdownRef.current[code] - 1);
+      });
       countdownRef.current = updated;
       setCountdowns({...updated});
     }, 1000);
@@ -165,16 +175,20 @@ export default function StudentDashboard() {
     if (!scannedText || scanResult) return;
     try {
       const qrData = JSON.parse(scannedText);
-      if (qrData.course !== activeCourseToScan) { setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`); return; }
+      if (qrData.course !== activeCourseToScan) {
+        setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`);
+        return;
+      }
       setIsScanning(false);
-      const response = await fetch('/api/sessions/attend', {
+      const response = await fetch(`${API_URL}/api/sessions/attend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
         body: JSON.stringify({ token: qrData.token, deviceId }),
       });
       const result = await response.json();
-      if (!response.ok) { setScanError(result.error); } else { setScanResult({ course: qrData.course, status: 'Attendance Logged Successfully!', token: qrData.token }); }
-    } catch (err) { setScanError(`Debug Error: ${err.message}`); }
+      if (!response.ok) setScanError(result.error);
+      else setScanResult({ course: qrData.course, status: 'Attendance Logged Successfully!', token: qrData.token });
+    } catch (err) { setScanError('Debug Error: ' + err.message); }
   };
 
   const handleLogout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/'); };
@@ -183,40 +197,44 @@ export default function StudentDashboard() {
   const CourseCards = ({ fullWidth = false }) => (
     <section style={fullWidth ? {...styles.courseGrid, flex:'1 1 100%'} : styles.courseGrid} aria-label="Active courses">
       <h4 style={{margin:'0 0 0.5rem 0',color:'#333',width:'100%'}}>Active Courses</h4>
-      {loadingCourses ? <p>Loading your courses...</p> : courses.length === 0 ? <p>You are not enrolled in any courses.</p> : (
-        courses.map(course => {
-          const session = activeSessions[course.code];
-          const countdown = countdowns[course.code];
-          const hasActiveSession = !!session;
-          const isExpired = countdown !== undefined && countdown <= 0;
-          const isUrgent = countdown !== undefined && countdown > 0 && countdown < 120;
-          return (
-            <div key={course.id} style={styles.card}>
-              <div>
-                <strong style={{fontSize:'1.1rem',color:'#222'}}>{course.name}</strong>
-                <p style={styles.code}>{course.code}</p>
-                {hasActiveSession && !isExpired && <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',fontWeight:'600',color:isUrgent?'#d32f2f':'#2e7d32'}}>🟢 Session open · {formatCountdown(countdown)}</p>}
-                {hasActiveSession && isExpired && <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',color:'#d32f2f',fontWeight:'600'}}>🔴 Session closed</p>}
-                {!hasActiveSession && <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',color:'#999'}}>⏳ No active session</p>}
-              </div>
-              <div style={styles.right}>
-                <div style={{...styles.badge, background:course.attendance>=75?'#e8f5e9':'#ffebee', color:course.attendance>=75?'#2e7d32':'#d32f2f', border:course.attendance>=75?'1px solid #c8e6c9':'1px solid #ffcdd2'}}
-                  aria-label={`${course.code} attendance: ${course.attendance}% — ${course.attendance>=75?'On Track':'At Risk'}`}>
-                  {course.attendance>=75?'On Track':'At Risk'} · {course.attendance}%
-                </div>
-                <button
-                  aria-label={`Scan QR code for ${course.code}: ${course.name}`}
-                  onClick={() => openScanner(course.code)}
-                  disabled={!hasActiveSession || isExpired}
-                  style={{...styles.scanBtn, background:!hasActiveSession||isExpired?'#ccc':isUrgent?'#d32f2f':'#1a237e', cursor:!hasActiveSession||isExpired?'not-allowed':'pointer'}}
-                >
-                  {!hasActiveSession?'No Session':isExpired?'Closed':'Scan QR'}
-                </button>
-              </div>
+      {loadingCourses ? <p>Loading your courses...</p> : courses.length === 0 ? <p>You are not enrolled in any courses.</p> : courses.map(course => {
+        const session = activeSessions[course.code];
+        const countdown = countdowns[course.code];
+        const hasActiveSession = !!session;
+        const isExpired = countdown !== undefined && countdown <= 0;
+        const isUrgent = countdown !== undefined && countdown > 0 && countdown <= 120;
+        return (
+          <div key={course.id} style={styles.card}>
+            <div>
+              <strong style={{fontSize:'1.1rem',color:'#222'}}>{course.name}</strong>
+              <p style={styles.code}>{course.code}</p>
+              {hasActiveSession && !isExpired && (
+                <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',fontWeight:'600',color:isUrgent?'#d32f2f':'#2e7d32'}} aria-live="polite">
+                  Session open — {formatCountdown(countdown)}
+                </p>
+              )}
+              {hasActiveSession && isExpired && <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',color:'#d32f2f',fontWeight:'600'}}>Session closed</p>}
+              {!hasActiveSession && <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',color:'#999'}}>No active session</p>}
             </div>
-          );
-        })
-      )}
+            <div style={styles.right}>
+              <div
+                style={{...styles.badge, background:course.attendance>=75?'#e8f5e9':'#ffebee', color:course.attendance>=75?'#2e7d32':'#d32f2f', border:course.attendance>=75?'1px solid #c8e6c9':'1px solid #ffcdd2'}}
+                aria-label={`${course.code} attendance ${course.attendance}%`}
+              >
+                {course.attendance}% {course.attendance>=75?'On Track':'At Risk'}
+              </div>
+              <button
+                aria-label={`Scan QR code for ${course.code}: ${course.name}`}
+                onClick={() => openScanner(course.code)}
+                disabled={!hasActiveSession || isExpired}
+                style={{...styles.scanBtn, background:(!hasActiveSession||isExpired)?'#ccc':isUrgent?'#d32f2f':'#1a237e', cursor:(!hasActiveSession||isExpired)?'not-allowed':'pointer'}}
+              >
+                {!hasActiveSession ? 'No Session' : isExpired ? 'Closed' : 'Scan QR'}
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 
@@ -231,8 +249,8 @@ export default function StudentDashboard() {
             <div style={styles.modalContent}>
               <h3 id="scanner-title" style={{margin:'0 0 0.5rem 0',color:'#1a237e'}}>Scanning for {activeCourseToScan}</h3>
               {countdowns[activeCourseToScan] !== undefined && (
-                <p style={{margin:'0 0 1rem',fontWeight:'600',color:countdowns[activeCourseToScan]<60?'#d32f2f':'#2e7d32',fontSize:'0.95rem'}} aria-live="polite" aria-atomic="true">
-                  🕐 {formatCountdown(countdowns[activeCourseToScan])}
+                <p style={{margin:'0 0 1rem',fontWeight:'600',color:countdowns[activeCourseToScan]<=60?'#d32f2f':'#2e7d32',fontSize:'0.95rem'}} aria-live="polite" aria-atomic="true">
+                  {formatCountdown(countdowns[activeCourseToScan])}
                 </p>
               )}
               {scanError && <p role="alert" style={styles.errorText}>{scanError}</p>}
@@ -361,7 +379,7 @@ export default function StudentDashboard() {
 }
 
 const styles = {
-  layout:{display:'flex',minHeight:'100vh',background:'#f4f7f9',fontFamily:"'Inter',sans-serif",position:'relative'},
+  layout:{display:'flex',minHeight:'100vh',background:'#f4f7f9',fontFamily:"'Inter',sans-serif"},
   sidebar:{width:'250px',background:'#0d1b2a',color:'#fff',display:'flex',flexDirection:'column',padding:'1.5rem'},
   sidebarHeader:{marginBottom:'2rem'},
   logo:{margin:0,fontSize:'1.4rem',borderBottom:'1px solid #ffffff20',paddingBottom:'1rem'},
@@ -374,25 +392,25 @@ const styles = {
   main:{flex:1,padding:'2rem',overflowY:'auto'},
   header:{marginBottom:'1.5rem'},
   greetingBox:{background:'#fff',padding:'1.5rem',borderRadius:'8px',boxShadow:'0 2px 10px rgba(0,0,0,0.03)'},
-  topRow:{display:'flex',gap:'2rem',alignItems:'flex-start',flexWrap:'wrap'},
-  chartCard:{background:'#fff',padding:'1.5rem',borderRadius:'8px',boxShadow:'0 2px 10px rgba(0,0,0,0.03)',flex:'1 1 400px',minWidth:'300px'},
-  courseGrid:{flex:'1 1 400px',display:'flex',flexDirection:'column',gap:'1rem'},
+  topRow:{display:'flex',gap:'1.5rem',alignItems:'flex-start',flexWrap:'wrap'},
+  chartCard:{background:'#fff',padding:'1.5rem',borderRadius:'8px',boxShadow:'0 2px 10px rgba(0,0,0,0.03)',flex:'2 1 400px'},
+  courseGrid:{display:'flex',flexDirection:'column',gap:'0.75rem',flex:'1 1 280px'},
+  card:{background:'#fff',padding:'1rem 1.25rem',borderRadius:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:'0 2px 10px rgba(0,0,0,0.03)'},
+  code:{color:'#666',fontSize:'0.85rem',margin:'0.2rem 0 0'},
+  right:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:'0.5rem'},
+  badge:{padding:'0.3rem 0.6rem',borderRadius:'4px',fontSize:'0.78rem',fontWeight:'bold'},
+  scanBtn:{color:'#fff',border:'none',padding:'0.5rem 1rem',borderRadius:'6px',fontWeight:'600',fontSize:'0.85rem'},
+  successBanner:{background:'#e8f5e9',border:'1px solid #c8e6c9',color:'#2e7d32',padding:'1rem 1.5rem',borderRadius:'8px',marginBottom:'1.5rem',display:'flex',alignItems:'center',gap:'0.5rem',flexWrap:'wrap'},
+  dismissBtn:{marginLeft:'auto',background:'transparent',border:'none',color:'#2e7d32',cursor:'pointer',fontWeight:'bold',fontSize:'1rem'},
   historyCard:{background:'#fff',padding:'1.5rem',borderRadius:'8px',boxShadow:'0 2px 10px rgba(0,0,0,0.03)'},
-  card:{background:'#fff',padding:'1.5rem',borderRadius:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:'0 2px 10px rgba(0,0,0,0.03)'},
-  code:{color:'#666',fontSize:'0.9rem',margin:'0.3rem 0 0'},
-  right:{display:'flex',alignItems:'center',gap:'1.5rem'},
-  badge:{padding:'0.4rem 0.8rem',borderRadius:'4px',fontWeight:'600',fontSize:'0.85rem'},
-  scanBtn:{color:'#fff',border:'none',padding:'0.6rem 1.2rem',borderRadius:'6px',fontWeight:'600',fontSize:'0.9rem'},
-  modalOverlay:{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.7)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000},
-  modalContent:{background:'#fff',padding:'2rem',borderRadius:'12px',width:'90%',maxWidth:'400px',textAlign:'center'},
-  cameraContainer:{overflow:'hidden',borderRadius:'8px',border:'2px solid #1a237e',marginBottom:'1rem'},
-  cancelBtn:{background:'#d32f2f',color:'#fff',border:'none',padding:'0.8rem',width:'100%',fontSize:'1rem',fontWeight:'bold',cursor:'pointer',borderRadius:'6px'},
-  errorText:{color:'#d32f2f',background:'#ffebee',padding:'0.5rem',borderRadius:'4px',fontSize:'0.9rem',marginBottom:'1rem'},
-  successBanner:{background:'#e8f5e9',border:'1px solid #4caf50',color:'#2e7d32',padding:'1rem',borderRadius:'8px',marginBottom:'1.5rem',display:'flex',alignItems:'center',justifyContent:'space-between'},
-  dismissBtn:{background:'transparent',border:'1px solid #2e7d32',color:'#2e7d32',padding:'0.3rem 0.8rem',borderRadius:'4px',cursor:'pointer',fontSize:'0.8rem',fontWeight:'bold'},
-  table:{width:'100%',borderCollapse:'collapse',minWidth:'600px'},
-  tableHeader:{borderBottom:'2px solid #e8eaf6',background:'#f5f5f5'},
-  th:{textAlign:'left',padding:'0.9rem 1rem',color:'#555',fontWeight:'600',fontSize:'0.85rem'},
-  tableRow:{borderBottom:'1px solid #eee'},
-  td:{padding:'0.9rem 1rem',color:'#333',fontSize:'0.9rem',verticalAlign:'middle'},
+  table:{width:'100%',borderCollapse:'collapse'},
+  tableHeader:{borderBottom:'2px solid #eee'},
+  th:{textAlign:'left',padding:'0.75rem 1rem',color:'#666',fontWeight:'600',fontSize:'0.85rem'},
+  tableRow:{borderBottom:'1px solid #f0f0f0'},
+  td:{padding:'0.75rem 1rem',color:'#333',fontSize:'0.9rem'},
+  modalOverlay:{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.6)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000},
+  modalContent:{background:'#fff',padding:'2rem',borderRadius:'12px',width:'90%',maxWidth:'380px',textAlign:'center',boxShadow:'0 10px 40px rgba(0,0,0,0.2)'},
+  cameraContainer:{borderRadius:'8px',overflow:'hidden',marginBottom:'1rem'},
+  cancelBtn:{background:'#d32f2f',color:'#fff',border:'none',padding:'0.75rem 2rem',borderRadius:'6px',cursor:'pointer',fontWeight:'600',fontSize:'0.95rem',width:'100%'},
+  errorText:{color:'#d32f2f',background:'#ffebee',padding:'0.5rem 0.75rem',borderRadius:'6px',fontSize:'0.85rem',marginBottom:'0.75rem',textAlign:'left'},
 };

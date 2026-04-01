@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SpeechReader from '../components/SpeechReader';
+import API_URL from '../config';
 
 const AlertTriangle = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:'8px',verticalAlign:'middle'}} aria-hidden="true">
@@ -29,19 +30,19 @@ export default function AdminPanel() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const res = await fetch('/api/sessions/admin/stats', { headers: authHeader });
+        const res = await fetch(`${API_URL}/api/sessions/admin/stats`, { headers: authHeader });
         if (res.ok) { const d = await res.json(); setStats(d); }
       } catch (err) { console.error(err); } finally { setLoadingStats(false); }
     };
     const fetchAlerts = async () => {
       try {
-        const res = await fetch('/api/sessions/anomalies/all', { headers: authHeader });
+        const res = await fetch(`${API_URL}/api/sessions/anomalies/all`, { headers: authHeader });
         if (res.ok) { const d = await res.json(); setAlerts(d); }
       } catch (err) { console.error(err); } finally { setLoadingAlerts(false); }
     };
     const fetchUsers = async () => {
       try {
-        const res = await fetch('/api/auth/admin/users', { headers: authHeader });
+        const res = await fetch(`${API_URL}/api/auth/admin/users`, { headers: authHeader });
         if (res.ok) { const d = await res.json(); setUsers(d.users || []); }
       } catch (err) { console.error(err); } finally { setLoadingUsers(false); }
     };
@@ -55,7 +56,7 @@ export default function AdminPanel() {
     try {
       const payload = { firstName:form.firstName.trim(), lastName:form.lastName.trim(), email:form.email.trim(), password:form.password, role:form.role };
       if (form.role === 'Student') payload.studentId = form.studentId.trim();
-      const res = await fetch('/api/auth/admin/create-user', {
+      const res = await fetch(`${API_URL}/api/auth/admin/create-user`, {
         method: 'POST',
         headers: { 'Content-Type':'application/json', ...authHeader },
         body: JSON.stringify(payload),

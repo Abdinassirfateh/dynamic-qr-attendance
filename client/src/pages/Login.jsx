@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SpeechReader from '../components/SpeechReader';
+import API_URL from '../config';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ export default function Login() {
     setError('');
     setIsLoading(true);
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

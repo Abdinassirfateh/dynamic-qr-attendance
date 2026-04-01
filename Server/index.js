@@ -7,7 +7,17 @@ require('dotenv').config();
 const pool = require('./db');
 
 const app = express();
-app.use(cors());
+
+// ✅ EXPRESS CORS — controls all fetch()/REST API calls
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'https://dynamic-qr-attendance.vercel.app/'
+
+  ],
+  credentials: true
+}));
+
 app.use(express.json());
 
 app.use('/api/auth', require('./routes/auth'));
@@ -16,15 +26,19 @@ app.use('/api/sessions', require('./routes/sessions'));
 // ✅ STEP 1: Create the HTTP server first
 const server = http.createServer(app);
 
-// ✅ STEP 2: Create io using that server
+// ✅ STEP 2: Create io using that server — SOCKET.IO CORS is separate!
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
-    methods: ["GET", "POST"]
+    origin: [
+      'http://localhost:5173',
+      'https://dynamic-qr-attendance.vercel.app/'
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
-// ✅ STEP 3: Only NOW can you use io.on()
+// ✅ STEP 3: Socket.io event handlers
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
@@ -33,7 +47,7 @@ io.on('connection', (socket) => {
   socket.on('start_session', async (sessionId) => {
     socket.join(sessionId);
     console.log(`Lecturer started session: ${sessionId}`);
-    
+
     if (rotationInterval) clearInterval(rotationInterval);
 
     rotationInterval = setInterval(async () => {
@@ -41,12 +55,12 @@ io.on('connection', (socket) => {
       try {
         const expiresAt = new Date(Date.now() + 10000);
         await pool.query(
-          "INSERT INTO qr_codes (session_id, token, expires_at) VALUES ($1, $2, $3)",
+          'INSERT INTO qr_codes (session_id, token, expires_at) VALUES ($1, $2, $3)',
           [sessionId, newToken, expiresAt]
         );
         io.to(sessionId).emit('new_qr_code', { token: newToken });
       } catch (err) {
-        console.error("Error saving QR token:", err.message);
+        console.error('Error saving QR token:', err.message);
       }
     }, 8000);
   });
@@ -63,10 +77,15 @@ io.on('connection', (socket) => {
 // ✅ STEP 4: Test route
 app.get('/api/test-db', async (req, res) => {
   try {
-    const result = await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'");
-    res.json({ message: "Database connection successful!", tables: result.rows.map(row => row.table_name) });
+    const result = await pool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+    );
+    res.json({
+      message: 'Database connection successful!',
+      tables: result.rows.map(row => row.table_name)
+    });
   } catch (err) {
-    res.status(500).json({ error: "Database connection failed." });
+    res.status(500).json({ error: 'Database connection failed.' });
   }
 });
 

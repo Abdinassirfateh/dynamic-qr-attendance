@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import SpeechReader from '../components/SpeechReader';
+import API_URL from '../config';
 
 const COURSE_CONFIG = {
   SWE3090: { name: 'Software Engineering Project', students: 45, days: [2,4], startHour:11, startMinute:0, endHour:12, endMinute:40 },
@@ -51,7 +52,7 @@ export default function LecturerDashboard() {
     const fetchCourses = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('/api/sessions/lecturer/courses', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(`${API_URL}/api/sessions/lecturer/courses`, { headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         const mapped = (data.courses || []).map((row, i) => {
@@ -72,7 +73,7 @@ export default function LecturerDashboard() {
       setLoadingHistory(true);
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('/api/sessions/lecturer/history', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch(`${API_URL}/api/sessions/lecturer/history`, { headers: { Authorization: `Bearer ${token}` } });
         const data = await res.json();
         if (res.ok) setSessionHistory(data);
       } catch (err) { console.error(err); }
@@ -97,7 +98,7 @@ export default function LecturerDashboard() {
       const fetchLive = async () => {
         try {
           const token = localStorage.getItem('token');
-          const res = await fetch(`/api/sessions/attendance/${activeSession.dbSessionId}`, { headers: { Authorization: `Bearer ${token}` } });
+          const res = await fetch(`${API_URL}/api/sessions/attendance/${activeSession.dbSessionId}`, { headers: { Authorization: `Bearer ${token}` } });
           if (res.ok) {
             const data = await res.json();
             setLiveCount(data.totalAttendance);
@@ -126,7 +127,7 @@ export default function LecturerDashboard() {
     setSessionError('');
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch('/api/sessions/start', {
+      const res = await fetch(`${API_URL}/api/sessions/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ courseId: course.code, sessionDeadline: sessionDeadline.toISOString() }),
@@ -142,7 +143,7 @@ export default function LecturerDashboard() {
     setQrData(qrPayload);
     try {
       const token = localStorage.getItem('token');
-      await fetch('/api/sessions/rotate', {
+      await fetch(`${API_URL}/api/sessions/rotate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ sessionId: dbSessionId, token: secureToken }),
@@ -153,7 +154,7 @@ export default function LecturerDashboard() {
   const handleEndSession = async () => {
     try {
       const token = localStorage.getItem('token');
-      await fetch('/api/sessions/end', {
+      await fetch(`${API_URL}/api/sessions/end`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ sessionId: activeSession.dbSessionId }),
@@ -166,7 +167,7 @@ export default function LecturerDashboard() {
     setExportingCourse(courseCode);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/sessions/export/${courseCode}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/sessions/export/${courseCode}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) { const d = await res.json(); alert(d.error); return; }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -182,7 +183,7 @@ export default function LecturerDashboard() {
     setPrintingSession(sessionId);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`/api/sessions/attendance/${sessionId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/sessions/attendance/${sessionId}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error('Failed to fetch attendance data');
       const data = await res.json();
       const sessionDate = data.records?.[0]?.marked_at

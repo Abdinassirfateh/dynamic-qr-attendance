@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import API_URL from '../config';
 
 export default function Reports() {
   const navigate = useNavigate();
@@ -11,10 +12,7 @@ export default function Reports() {
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-    if (!storedUser) {
-      navigate('/');
-      return;
-    }
+    if (!storedUser) { navigate('/'); return; }
     setUser(JSON.parse(storedUser));
     fetchData();
   }, [navigate]);
@@ -24,14 +22,9 @@ export default function Reports() {
     setLoading(true);
     try {
       const [sessionsRes, anomaliesRes] = await Promise.all([
-        fetch('/api/sessions/history', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }),
-        fetch('/api/sessions/anomalies/all', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+        fetch(`${API_URL}/api/sessions/history`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/sessions/anomalies/all`, { headers: { 'Authorization': `Bearer ${token}` } })
       ]);
-
       if (sessionsRes.ok) setSessions(await sessionsRes.json());
       if (anomaliesRes.ok) setAnomalies(await anomaliesRes.json());
     } catch (err) {
@@ -41,18 +34,11 @@ export default function Reports() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    navigate('/');
-  };
+  const handleLogout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/'); };
 
   const formatDateTime = (timestamp) => {
     if (!timestamp) return '—';
-    return new Date(timestamp).toLocaleString('en-KE', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
+    return new Date(timestamp).toLocaleString('en-KE', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
   };
 
   const getDuration = (start, end) => {
@@ -67,9 +53,7 @@ export default function Reports() {
     <div style={styles.layout}>
       {/* SIDEBAR */}
       <aside style={styles.sidebar}>
-        <div style={styles.sidebarHeader}>
-          <h2 style={styles.logo}>MySignInApp</h2>
-        </div>
+        <div style={styles.sidebarHeader}><h2 style={styles.logo}>MySignInApp</h2></div>
         <nav style={styles.nav}>
           <p style={styles.navLink} onClick={() => navigate('/lecturer')}>Dashboard</p>
           <p style={styles.navLink}>Sessions</p>
@@ -113,84 +97,46 @@ export default function Reports() {
 
         {/* TABS */}
         <div style={styles.tabRow}>
-          <button
-            style={activeTab === 'sessions' ? styles.activeTab : styles.tab}
-            onClick={() => setActiveTab('sessions')}
-          >
-            Session History
-          </button>
-          <button
-            style={activeTab === 'security' ? styles.activeTab : styles.tab}
-            onClick={() => setActiveTab('security')}
-          >
-            🚨 Security Alerts {anomalies.length > 0 && (
-              <span style={styles.badge}>{anomalies.length}</span>
-            )}
+          <button style={activeTab === 'sessions' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('sessions')}>Session History</button>
+          <button style={activeTab === 'security' ? styles.activeTab : styles.tab} onClick={() => setActiveTab('security')}>
+            🚨 Security Alerts {anomalies.length > 0 && (<span style={styles.badge}>{anomalies.length}</span>)}
           </button>
         </div>
 
         {loading ? (
           <p style={{ color: '#666', padding: '2rem' }}>Loading...</p>
         ) : activeTab === 'sessions' ? (
-
-          /* SESSION HISTORY TAB */
           <div style={styles.tableCard}>
             {sessions.length === 0 ? (
-              <p style={{ color: '#666', textAlign: 'center', padding: '2rem' }}>
-                No closed sessions yet.
-              </p>
+              <p style={{ color: '#666', textAlign: 'center', padding: '2rem' }}>No closed sessions yet.</p>
             ) : (
               <table style={styles.table}>
                 <thead>
                   <tr style={styles.tableHeader}>
-                    <th style={styles.th}>Course</th>
-                    <th style={styles.th}>Date</th>
-                    <th style={styles.th}>Start Time</th>
-                    <th style={styles.th}>End Time</th>
-                    <th style={styles.th}>Duration</th>
-                    <th style={styles.th}>Attended</th>
+                    <th style={styles.th}>Course</th><th style={styles.th}>Date</th>
+                    <th style={styles.th}>Start Time</th><th style={styles.th}>End Time</th>
+                    <th style={styles.th}>Duration</th><th style={styles.th}>Attended</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sessions.map((session) => (
                     <tr key={session.session_id} style={styles.tableRow}>
-                      <td style={styles.td}>
-                        <strong>{session.course_id}</strong>
-                      </td>
-                      <td style={styles.td}>
-                        {new Date(session.start_time).toLocaleDateString('en-KE', {
-                          weekday: 'short', day: '2-digit', month: 'short'
-                        })}
-                      </td>
-                      <td style={styles.td}>
-                        {new Date(session.start_time).toLocaleTimeString('en-KE', {
-                          hour: '2-digit', minute: '2-digit'
-                        })}
-                      </td>
-                      <td style={styles.td}>
-                        {session.end_time ? new Date(session.end_time).toLocaleTimeString('en-KE', {
-                          hour: '2-digit', minute: '2-digit'
-                        }) : '—'}
-                      </td>
+                      <td style={styles.td}><strong>{session.course_id}</strong></td>
+                      <td style={styles.td}>{new Date(session.start_time).toLocaleDateString('en-KE', { weekday:'short', day:'2-digit', month:'short' })}</td>
+                      <td style={styles.td}>{new Date(session.start_time).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' })}</td>
+                      <td style={styles.td}>{session.end_time ? new Date(session.end_time).toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' }) : '—'}</td>
                       <td style={styles.td}>{getDuration(session.start_time, session.end_time)}</td>
-                      <td style={styles.td}>
-                        <span style={styles.countBadge}>{session.attendance_count} students</span>
-                      </td>
+                      <td style={styles.td}><span style={styles.countBadge}>{session.attendance_count} students</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
           </div>
-
         ) : (
-
-          /* SECURITY ALERTS TAB */
           <div style={styles.tableCard}>
             {anomalies.length === 0 ? (
-              <p style={{ color: '#2e7d32', textAlign: 'center', padding: '2rem' }}>
-                ✅ No security alerts recorded.
-              </p>
+              <p style={{ color: '#2e7d32', textAlign: 'center', padding: '2rem' }}>✅ No security alerts recorded.</p>
             ) : (
               anomalies.map((alert) => (
                 <div key={alert.id} style={styles.alertRow}>
@@ -198,18 +144,11 @@ export default function Reports() {
                     <span style={styles.alertIcon}>🚨</span>
                     <div>
                       <p style={styles.alertReason}>{alert.flag_reason}</p>
-                      <p style={styles.alertMeta}>
-                        {alert.first_name ? `${alert.first_name} ${alert.last_name}` : 'Unknown Student'}
-                        {alert.email ? ` • ${alert.email}` : ''}
-                      </p>
-                      <p style={styles.alertMeta}>
-                        Device: {alert.device_id?.substring(0, 20)}...
-                      </p>
+                      <p style={styles.alertMeta}>{alert.first_name ? `${alert.first_name} ${alert.last_name}` : 'Unknown Student'}{alert.email ? ` • ${alert.email}` : ''}</p>
+                      <p style={styles.alertMeta}>Device: {alert.device_id?.substring(0, 20)}...</p>
                     </div>
                   </div>
-                  <div style={styles.alertRight}>
-                    <p style={styles.alertTime}>{formatDateTime(alert.created_at)}</p>
-                  </div>
+                  <div style={styles.alertRight}><p style={styles.alertTime}>{formatDateTime(alert.created_at)}</p></div>
                 </div>
               ))
             )}
