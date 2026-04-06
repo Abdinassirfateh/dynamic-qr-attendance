@@ -140,7 +140,7 @@ router.post('/admin/create-user', async (req, res) => {
 router.get('/admin/users', async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT user_id, first_name, last_name, email, role, 'Active' AS status
+      `SELECT user_id, first_name, last_name, email, role, password_hash, 'Active' AS status
        FROM users
        ORDER BY
          CASE role WHEN 'Admin' THEN 1 WHEN 'Lecturer' THEN 2 ELSE 3 END,

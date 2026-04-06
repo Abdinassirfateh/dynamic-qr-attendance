@@ -172,25 +172,40 @@ export default function StudentDashboard() {
   };
 
   const handleScan = async (scannedText) => {
-    if (!scannedText || scanResult) return;
-    try {
-      const qrData = JSON.parse(scannedText);
-      if (qrData.course !== activeCourseToScan) {
-        setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`);
-        return;
-      }
+  if (!scannedText || scanResult) return;
+  try {
+    const qrData = JSON.parse(scannedText);
+    if (qrData.course !== activeCourseToScan) {
+      setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`);
+      return;
+    }
+    // ✅ DO NOT close the modal yet — wait for the response first
+    const response = await fetch(`${API_URL}/api/sessions/attend`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+      },
+      body: JSON.stringify({ token: qrData.token, deviceId }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      // ✅ Error: keep modal OPEN so the message shows inside it
+      setScanError(result.error);
+    } else {
+      // ✅ Success only: NOW close the modal
       setIsScanning(false);
-      const response = await fetch(`${API_URL}/api/sessions/attend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ token: qrData.token, deviceId }),
+      setScanResult({
+        course: qrData.course,
+        status: 'Attendance Logged Successfully!',
+        token: qrData.token,
       });
-      const result = await response.json();
-      if (!response.ok) setScanError(result.error);
-      else setScanResult({ course: qrData.course, status: 'Attendance Logged Successfully!', token: qrData.token });
-    } catch (err) { setScanError('Debug Error: ' + err.message); }
-  };
-
+    }
+  } catch (err) {
+    setScanError('Debug Error: ' + err.message);
+  }
+};
+  
   const handleLogout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/'); };
   if (!user) return null;
 
