@@ -52,7 +52,8 @@ io.on('connection', (socket) => {
     rotationInterval = setInterval(async () => {
       const newToken = `qr_token_${Math.random().toString(36).substring(7)}`;
       try {
-        const expiresAt = new Date(Date.now() + 10000);
+        const expiresAt = new Date(Date.now() + 70000);
+
         await pool.query(
           'INSERT INTO qr_codes (session_id, token, expires_at) VALUES ($1, $2, $3)',
           [sessionId, newToken, expiresAt]
@@ -61,7 +62,7 @@ io.on('connection', (socket) => {
       } catch (err) {
         console.error('Error saving QR token:', err.message);
       }
-    }, 8000);
+    }, 60000);
   });
 
   socket.on('disconnect', () => {

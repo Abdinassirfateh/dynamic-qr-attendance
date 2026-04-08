@@ -47,11 +47,11 @@ router.post('/start', verifyToken, authorizeRole('Lecturer', 'Admin'), async (re
   }
 });
 
-// 2. SAVE THE ROTATING 7-SECOND TOKEN
+// 2. SAVE THE ROTATING 60-SECOND TOKEN
 router.post('/rotate', async (req, res) => {
   try {
     const { sessionId, token } = req.body;
-    const expiresAt = new Date(Date.now() + 10000);
+    const expiresAt = new Date(Date.now() + 70000);
     const newQr = await pool.query(
       "INSERT INTO qr_codes (session_id, token, expires_at) VALUES ($1, $2, $3) RETURNING *",
       [sessionId, token, expiresAt]

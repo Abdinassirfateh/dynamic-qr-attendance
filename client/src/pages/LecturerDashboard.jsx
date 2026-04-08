@@ -83,14 +83,21 @@ export default function LecturerDashboard() {
   }, [activeTab]);
 
   useEffect(() => {
-    let rotationInterval, countdownInterval;
-    if (activeSession?.dbSessionId) {
-      generateAndSaveToken(activeSession.code, activeSession.dbSessionId);
-      rotationInterval = setInterval(() => { generateAndSaveToken(activeSession.code, activeSession.dbSessionId); setTimeLeft(7); }, 7000);
-      countdownInterval = setInterval(() => setTimeLeft(prev => prev > 0 ? prev - 1 : 7), 1000);
-    }
-    return () => { clearInterval(rotationInterval); clearInterval(countdownInterval); };
-  }, [activeSession]);
+  let rotationInterval, countdownInterval;
+  if (activeSession?.dbSessionId) {
+    generateAndSaveToken(activeSession.code, activeSession.dbSessionId);
+    setTimeLeft(60); // ← ADDED
+    rotationInterval = setInterval(
+      () => { generateAndSaveToken(activeSession.code, activeSession.dbSessionId); setTimeLeft(60); },
+      60000
+    );
+    countdownInterval = setInterval(
+      () => setTimeLeft(prev => prev > 0 ? prev - 1 : 60),
+      1000
+    );
+  }
+  return () => { clearInterval(rotationInterval); clearInterval(countdownInterval); };
+}, [activeSession]);
 
   useEffect(() => {
     let pollInterval;
