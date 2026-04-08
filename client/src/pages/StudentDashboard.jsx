@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Scanner } from '@yudiel/react-qr-scanner';
-import fpPromise from '@fingerprintjs/fingerprintjs';
+import { Thumbmark } from '@thumbmarkjs/thumbmarkjs';
 import SpeechReader from '../components/SpeechReader';
 import API_URL from '../config';
 
@@ -62,13 +62,17 @@ export default function StudentDashboard() {
   const countdownRef = useRef({});
 
   useEffect(() => {
-    const getFingerprint = async () => {
-      const fp = await fpPromise.load();
-      const result = await fp.get();
-      setDeviceId(result.visitorId);
-    };
-    getFingerprint();
-  }, []);
+  const fetchFingerprint = async () => {
+    try {
+      const tm = new Thumbmark();
+      const result = await tm.get();
+      setDeviceId(result.thumbmark);
+    } catch (err) {
+      console.error('Fingerprint error:', err);
+    }
+  };
+  fetchFingerprint();
+}, []);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
