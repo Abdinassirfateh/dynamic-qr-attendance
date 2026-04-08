@@ -6,22 +6,7 @@ import { Thumbmark } from '@thumbmarkjs/thumbmarkjs';
 import SpeechReader from '../components/SpeechReader';
 import API_URL from '../config';
 
-const weeklyAttendanceData = [
-  { week:'Wk 1',  SWE3090:100, APT1050:50,  APT3010:67  },
-  { week:'Wk 2',  SWE3090:83,  APT1050:33,  APT3010:67  },
-  { week:'Wk 3',  SWE3090:100, APT1050:100, APT3010:100 },
-  { week:'Wk 4',  SWE3090:83,  APT1050:100, APT3010:33  },
-  { week:'Wk 5',  SWE3090:83,  APT1050:83,  APT3010:67  },
-  { week:'Wk 6',  SWE3090:100, APT1050:100, APT3010:100 },
-  { week:'Wk 7',  SWE3090:50,  APT1050:83,  APT3010:100 },
-  { week:'Wk 8',  SWE3090:83,  APT1050:67,  APT3010:100 },
-  { week:'Wk 9',  SWE3090:83,  APT1050:100, APT3010:100 },
-  { week:'Wk 10', SWE3090:83,  APT1050:100, APT3010:67  },
-  { week:'Wk 11', SWE3090:83,  APT1050:100, APT3010:67  },
-  { week:'Wk 12', SWE3090:50,  APT1050:83,  APT3010:33  },
-  { week:'Wk 13', SWE3090:67,  APT1050:33,  APT3010:100 },
-  { week:'Wk 14', SWE3090:67,  APT1050:50,  APT3010:100 },
-];
+// ✅ 1. DELETED the hardcoded `weeklyAttendanceData` array from here.
 
 const AlertIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:'6px',verticalAlign:'middle'}} aria-hidden="true">
@@ -61,18 +46,22 @@ export default function StudentDashboard() {
   const [countdowns, setCountdowns] = useState({});
   const countdownRef = useRef({});
 
+  // ✅ 2. ADDED dynamic chart state and colors here
+  const [chartData, setChartData] = useState([]);
+  const chartColors = ['#1a237e', '#d32f2f', '#0288d1', '#f57f17', '#2e7d32'];
+
   useEffect(() => {
-  const fetchFingerprint = async () => {
-    try {
-      const tm = new Thumbmark();
-      const result = await tm.get();
-      setDeviceId(result.thumbmark);
-    } catch (err) {
-      console.error('Fingerprint error:', err);
-    }
-  };
-  fetchFingerprint();
-}, []);
+    const fetchFingerprint = async () => {
+      try {
+        const tm = new Thumbmark();
+        const result = await tm.get();
+        setDeviceId(result.thumbmark);
+      } catch (err) {
+        console.error('Fingerprint error:', err);
+      }
+    };
+    fetchFingerprint();
+  }, []);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -82,16 +71,23 @@ export default function StudentDashboard() {
     setUser(parsedUser);
   }, [navigate]);
 
+  // ✅ 3. REPLACED fetchCourses to include the new /chart-data endpoint
   useEffect(() => {
     const fetchCourses = async () => {
       try {
         const token = localStorage.getItem('token');
-        const [coursesRes, statsRes] = await Promise.all([
+        const [coursesRes, statsRes, chartRes] = await Promise.all([
           fetch(`${API_URL}/api/sessions/student/courses`,      { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/api/sessions/student/course-stats`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/sessions/student/chart-data`,   { headers: { Authorization: `Bearer ${token}` } })
         ]);
+        
         const coursesData = await coursesRes.json();
         const statsData   = statsRes.ok ? await statsRes.json() : [];
+        const chartDataRes = chartRes.ok ? await chartRes.json() : []; 
+        
+        setChartData(chartDataRes); // Set the chart data
+
         const statsMap = {};
         statsData.forEach(s => {
           statsMap[s.course_id] = s.total_sessions > 0 ? Math.round((s.attended_sessions / s.total_sessions) * 100) : 100;
@@ -183,7 +179,6 @@ export default function StudentDashboard() {
       setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`);
       return;
     }
-    // ✅ DO NOT close the modal yet — wait for the response first
     const response = await fetch(`${API_URL}/api/sessions/attend`, {
       method: 'POST',
       headers: {
@@ -194,10 +189,8 @@ export default function StudentDashboard() {
     });
     const result = await response.json();
     if (!response.ok) {
-      // ✅ Error: keep modal OPEN so the message shows inside it
       setScanError(result.error);
     } else {
-      // ✅ Success only: NOW close the modal
       setIsScanning(false);
       setScanResult({
         course: qrData.course,
@@ -335,15 +328,25 @@ export default function StudentDashboard() {
                 <h4 style={{margin:'0 0 1.5rem 0',color:'#333'}}>Attendance Trends (14 Weeks)</h4>
                 <div style={{width:'100%',height:250}}>
                   <ResponsiveContainer>
-                    <LineChart data={weeklyAttendanceData} margin={{top:5,right:20,bottom:5,left:0}}>
+                    {/* ✅ 4. REPLACED the static LineChart with the dynamic mapped one */}
+                    <LineChart data={chartData} margin={{top:5,right:20,bottom:5,left:0}}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee"/>
                       <XAxis dataKey="week" tick={{fill:'#666',fontSize:11}} axisLine={false} tickLine={false}/>
                       <YAxis tick={{fill:'#666',fontSize:12}} axisLine={false} tickLine={false} domain={[0,100]}/>
                       <Tooltip contentStyle={{borderRadius:'8px',border:'none',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}/>
                       <Legend iconType="circle" wrapperStyle={{fontSize:'12px',paddingTop:'10px'}}/>
-                      <Line type="monotone" dataKey="SWE3090" stroke="#1a237e" strokeWidth={3} dot={{r:3}} activeDot={{r:6}}/>
-                      <Line type="monotone" dataKey="APT1050" stroke="#d32f2f" strokeWidth={3} dot={{r:3}} activeDot={{r:6}}/>
-                      <Line type="monotone" dataKey="APT3010" stroke="#0288d1" strokeWidth={3} dot={{r:3}} activeDot={{r:6}}/>
+                      
+                      {courses.map((course, index) => (
+                        <Line 
+                          key={course.code} 
+                          type="monotone" 
+                          dataKey={course.code} 
+                          stroke={chartColors[index % chartColors.length]} 
+                          strokeWidth={3} 
+                          dot={{r:3}} 
+                          activeDot={{r:6}}
+                        />
+                      ))}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
