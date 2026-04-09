@@ -6,8 +6,6 @@ import { getFingerprint } from '@thumbmarkjs/thumbmarkjs';
 import SpeechReader from '../components/SpeechReader';
 import API_URL from '../config';
 
-// ✅ 1. DELETED the hardcoded `weeklyAttendanceData` array from here.
-
 const AlertIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:'6px',verticalAlign:'middle'}} aria-hidden="true">
     <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
@@ -44,9 +42,9 @@ export default function StudentDashboard() {
   const [scanError, setScanError] = useState('');
   const [activeSessions, setActiveSessions] = useState({});
   const [countdowns, setCountdowns] = useState({});
+  const [sidebarOpen, setSidebarOpen] = useState(false); // Mobile state
   const countdownRef = useRef({});
 
-  // ✅ 2. ADDED dynamic chart state and colors here
   const [chartData, setChartData] = useState([]);
   const chartColors = ['#1a237e', '#d32f2f', '#0288d1', '#f57f17', '#2e7d32'];
 
@@ -55,7 +53,6 @@ export default function StudentDashboard() {
       try {
         const fingerprint = await getFingerprint();
          setDeviceId(fingerprint);
-        
       } catch (err) {
         console.error('Fingerprint error:', err);
       }
@@ -71,7 +68,6 @@ export default function StudentDashboard() {
     setUser(parsedUser);
   }, [navigate]);
 
-  // ✅ 3. REPLACED fetchCourses to include the new /chart-data endpoint
   useEffect(() => {
     const fetchCourses = async () => {
       try {
@@ -86,7 +82,7 @@ export default function StudentDashboard() {
         const statsData   = statsRes.ok ? await statsRes.json() : [];
         const chartDataRes = chartRes.ok ? await chartRes.json() : []; 
         
-        setChartData(chartDataRes); // Set the chart data
+        setChartData(chartDataRes);
 
         const statsMap = {};
         statsData.forEach(s => {
@@ -172,42 +168,43 @@ export default function StudentDashboard() {
   };
 
   const handleScan = async (scannedText) => {
-  if (!scannedText || scanResult) return;
-  try {
-    const qrData = JSON.parse(scannedText);
-    if (qrData.course !== activeCourseToScan) {
-      setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`);
-      return;
-    }
-    const response = await fetch(`${API_URL}/api/sessions/attend`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-      },
-      body: JSON.stringify({ token: qrData.token, deviceId }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      setScanError(result.error);
-    } else {
-      setIsScanning(false);
-      setScanResult({
-        course: qrData.course,
-        status: 'Attendance Logged Successfully!',
-        token: qrData.token,
+    if (!scannedText || scanResult) return;
+    try {
+      const qrData = JSON.parse(scannedText);
+      if (qrData.course !== activeCourseToScan) {
+        setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`);
+        return;
+      }
+      const response = await fetch(`${API_URL}/api/sessions/attend`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ token: qrData.token, deviceId }),
       });
+      const result = await response.json();
+      if (!response.ok) {
+        setScanError(result.error);
+      } else {
+        setIsScanning(false);
+        setScanResult({
+          course: qrData.course,
+          status: 'Attendance Logged Successfully!',
+          token: qrData.token,
+        });
+      }
+    } catch (err) {
+      setScanError('Debug Error: ' + err.message);
     }
-  } catch (err) {
-    setScanError('Debug Error: ' + err.message);
-  }
-};
+  };
   
   const handleLogout = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); navigate('/'); };
+  
   if (!user) return null;
 
   const CourseCards = ({ fullWidth = false }) => (
-    <section style={fullWidth ? {...styles.courseGrid, flex:'1 1 100%'} : styles.courseGrid} aria-label="Active courses">
+    <section style={fullWidth ? {...styles.courseGrid, flex:'1 1 100%'} : styles.courseGrid} className="sd-course-grid" aria-label="Active courses">
       <h4 style={{margin:'0 0 0.5rem 0',color:'#333',width:'100%'}}>Active Courses</h4>
       {loadingCourses ? <p>Loading your courses...</p> : courses.length === 0 ? <p>You are not enrolled in any courses.</p> : courses.map(course => {
         const session = activeSessions[course.code];
@@ -216,7 +213,7 @@ export default function StudentDashboard() {
         const isExpired = countdown !== undefined && countdown <= 0;
         const isUrgent = countdown !== undefined && countdown > 0 && countdown <= 120;
         return (
-          <div key={course.id} style={styles.card}>
+          <div key={course.id} style={styles.card} className="sd-card">
             <div>
               <strong style={{fontSize:'1.1rem',color:'#222'}}>{course.name}</strong>
               <p style={styles.code}>{course.code}</p>
@@ -228,7 +225,7 @@ export default function StudentDashboard() {
               {hasActiveSession && isExpired && <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',color:'#d32f2f',fontWeight:'600'}}>Session closed</p>}
               {!hasActiveSession && <p style={{margin:'0.3rem 0 0',fontSize:'0.8rem',color:'#999'}}>No active session</p>}
             </div>
-            <div style={styles.right}>
+            <div style={styles.right} className="sd-card-right">
               <div
                 style={{...styles.badge, background:course.attendance>=75?'#e8f5e9':'#ffebee', color:course.attendance>=75?'#2e7d32':'#d32f2f', border:course.attendance>=75?'1px solid #c8e6c9':'1px solid #ffcdd2'}}
                 aria-label={`${course.code} attendance ${course.attendance}%`}
@@ -252,8 +249,71 @@ export default function StudentDashboard() {
 
   return (
     <>
+      <style>{`
+        @media (max-width: 768px) {
+          .sd-layout { flex-direction: column !important; }
+          .sd-sidebar {
+            position: fixed !important;
+            top: 0; left: 0; bottom: 0;
+            width: 260px !important;
+            z-index: 2000;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+          }
+          .sd-sidebar.open { transform: translateX(0) !important; }
+          .sd-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1999;
+          }
+          .sd-overlay.open { display: block; }
+          .sd-mobile-header {
+            display: flex !important;
+            align-items: center;
+            justify-content: space-between;
+            background: #0d1b2a;
+            color: #fff;
+            padding: 1rem 1.5rem;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+          }
+          .sd-main { padding: 1rem !important; }
+          .sd-top-row { flex-direction: column !important; }
+          .sd-chart-card { min-width: 0 !important; width: 100% !important; }
+          .sd-course-grid { flex: unset !important; width: 100% !important; }
+          .sd-card { flex-direction: column !important; align-items: flex-start !important; gap: 0.75rem !important; }
+          .sd-card-right { flex-direction: row !important; align-items: center !important; flex-wrap: wrap !important; width: 100%; justify-content: space-between; }
+          .sd-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .sd-history-table th, .sd-history-table td { white-space: nowrap; padding: 0.6rem 0.75rem !important; }
+        }
+        @media (min-width: 769px) {
+          .sd-mobile-header, .sd-overlay, .sd-close-btn { display: none !important; }
+        }
+      `}</style>
+      
       <SpeechReader targetId="main-content" />
-      <div style={styles.layout}>
+      <div style={styles.layout} className="sd-layout">
+
+        {/* ── MOBILE HEADER ── */}
+        <div className="sd-mobile-header">
+          <span style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>MySignInApp</span>
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open navigation menu"
+            style={{ background: 'none', border: '1px solid #ffffff50', color: '#fff',
+                     padding: '0.4rem 0.75rem', borderRadius: '6px', cursor: 'pointer', fontSize: '1.2rem' }}>
+            ☰
+          </button>
+        </div>
+
+        {/* ── MOBILE OVERLAY ── */}
+        <div
+          className={`sd-overlay ${sidebarOpen ? 'open' : ''}`}
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
 
         {/* ── SCANNER MODAL ── */}
         {isScanning && (
@@ -279,13 +339,30 @@ export default function StudentDashboard() {
         )}
 
         {/* ── SIDEBAR ── */}
-        <aside style={styles.sidebar} role="complementary" aria-label="Student navigation sidebar">
-          <div style={styles.sidebarHeader}><h2 style={styles.logo}>MySignInApp</h2></div>
+        <aside 
+          style={styles.sidebar} 
+          className={`sd-sidebar ${sidebarOpen ? 'open' : ''}`}
+          role="complementary" 
+          aria-label="Student navigation sidebar"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h2 style={styles.logo}>MySignInApp</h2>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="sd-close-btn"
+              aria-label="Close navigation menu"
+              style={{ background: 'none', border: 'none', color: '#fff', fontSize: '1.8rem', cursor: 'pointer' }}
+            >
+              ✕
+            </button>
+          </div>
+          
           <nav style={styles.nav} role="navigation" aria-label="Main navigation">
-            <button style={activeTab==='dashboard'?styles.activeNavLink:styles.navLink} onClick={()=>setActiveTab('dashboard')} aria-current={activeTab==='dashboard'?'page':undefined}>Dashboard</button>
-            <button style={activeTab==='courses'?styles.activeNavLink:styles.navLink} onClick={()=>setActiveTab('courses')} aria-current={activeTab==='courses'?'page':undefined}>My Courses</button>
-            <button style={activeTab==='history'?styles.activeNavLink:styles.navLink} onClick={()=>setActiveTab('history')} aria-current={activeTab==='history'?'page':undefined}>History</button>
+            <button style={activeTab==='dashboard'?styles.activeNavLink:styles.navLink} onClick={()=>{setActiveTab('dashboard'); setSidebarOpen(false);}}>Dashboard</button>
+            <button style={activeTab==='courses'?styles.activeNavLink:styles.navLink} onClick={()=>{setActiveTab('courses'); setSidebarOpen(false);}}>My Courses</button>
+            <button style={activeTab==='history'?styles.activeNavLink:styles.navLink} onClick={()=>{setActiveTab('history'); setSidebarOpen(false);}}>History</button>
           </nav>
+          
           <div style={styles.sidebarFooter}>
             <div style={styles.profileBox}>
               <p style={{fontWeight:'bold',margin:0}}>{user.first_name} {user.last_name}</p>
@@ -297,7 +374,7 @@ export default function StudentDashboard() {
         </aside>
 
         {/* ── MAIN ── */}
-        <main id="main-content" style={styles.main} role="main" aria-label="Student dashboard">
+        <main id="main-content" style={styles.main} className="sd-main" role="main" aria-label="Student dashboard">
           <header style={styles.header}>
             <div style={{...styles.greetingBox, borderLeft:isAtRisk?'5px solid #d32f2f':'5px solid #2e7d32'}}>
               <h3 style={{margin:'0 0 0.5rem 0',color:'#333'}}>Welcome back, {user.first_name}.</h3>
@@ -323,12 +400,11 @@ export default function StudentDashboard() {
           )}
 
           {activeTab === 'dashboard' && (
-            <div style={styles.topRow}>
-              <section style={styles.chartCard} aria-label="Attendance trends line chart for 14 weeks">
+            <div style={styles.topRow} className="sd-top-row">
+              <section style={styles.chartCard} className="sd-chart-card" aria-label="Attendance trends line chart for 14 weeks">
                 <h4 style={{margin:'0 0 1.5rem 0',color:'#333'}}>Attendance Trends (14 Weeks)</h4>
                 <div style={{width:'100%',height:250}}>
                   <ResponsiveContainer>
-                    {/* ✅ 4. REPLACED the static LineChart with the dynamic mapped one */}
                     <LineChart data={chartData} margin={{top:5,right:20,bottom:5,left:0}}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee"/>
                       <XAxis dataKey="week" tick={{fill:'#666',fontSize:11}} axisLine={false} tickLine={false}/>
@@ -367,8 +443,8 @@ export default function StudentDashboard() {
               {loadingHistory ? <p style={{color:'#666'}}>Loading your history...</p> : attendanceHistory.length === 0 ? (
                 <p style={{color:'#888'}}>No attendance records found yet.</p>
               ) : (
-                <div style={{overflowX:'auto'}}>
-                  <table style={styles.table} aria-label="Attendance history records">
+                <div className="sd-table-wrap">
+                  <table style={styles.table} className="sd-history-table" aria-label="Attendance history records">
                     <thead>
                       <tr style={styles.tableHeader}>
                         <th style={styles.th} scope="col">#</th>
