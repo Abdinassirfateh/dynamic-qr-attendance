@@ -172,19 +172,25 @@ router.get('/attendance/:sessionId', verifyToken, authorizeRole('Lecturer', 'Adm
 // 8. GET SESSION HISTORY FOR LECTURER (legacy route)
 router.get('/history', verifyToken, authorizeRole('Lecturer', 'Admin'), async (req, res) => {
   try {
-    const lecturerId = req.user.user_id;
-    const sessions = await pool.query(`
-      SELECT s.session_id, s.course_id, s.start_time, s.end_time, s.status,
-             COUNT(ar.attendance_id) AS attendance_count
-      FROM sessions s
-      LEFT JOIN attendance_records ar ON s.session_id = ar.session_id
-      WHERE s.lecturer_id = $1 AND s.status = 'Closed'
-      GROUP BY s.session_id, s.course_id, s.start_time, s.end_time, s.status
-      ORDER BY s.start_time DESC
-    `, [lecturerId]);
+    const lecturerId = req.user.userid;
+    const sessions = await pool.query(
+      `SELECT 
+         s.session_id  AS sessionid,
+         s.course_id   AS courseid,
+         s.start_time  AS starttime,
+         s.end_time    AS endtime,
+         s.status,
+         COUNT(ar.attendance_id) AS attendancecount
+       FROM sessions s
+       LEFT JOIN attendance_records ar ON s.session_id = ar.session_id
+       WHERE s.lecturer_id = $1 AND s.status = 'Closed'
+       GROUP BY s.session_id, s.course_id, s.start_time, s.end_time, s.status
+       ORDER BY s.start_time DESC`,
+      [lecturerId]
+    );
     res.json(sessions.rows);
   } catch (err) {
-    console.error("Error fetching session history:", err.message);
+    console.error(err.message);
     res.status(500).json({ error: 'Server error fetching session history' });
   }
 });
@@ -453,21 +459,26 @@ router.get('/student/course-stats', verifyToken, authorizeRole('Student'), async
   }
 });
 
-// 16. LECTURER SESSION HISTORY (with course name)
-router.get('/lecturer/history', verifyToken, authorizeRole('Lecturer', 'Admin'), async (req, res) => {
+// 16. LECTURER SESSION HISTORY with course name
+router.get('/lecturerhistory', verifyToken, authorizeRole('Lecturer', 'Admin'), async (req, res) => {
   try {
-    const lecturerId = req.user.user_id;
+    const lecturerId = req.user.userid;
     const result = await pool.query(
-      `SELECT s.session_id, s.course_id, c.course_name,
-              s.start_time, s.end_time, s.status,
-              COUNT(ar.attendance_id) AS attendance_count
+      `SELECT 
+         s.session_id     AS sessionid,
+         s.course_id      AS courseid,
+         c.course_name    AS coursename,
+         s.start_time     AS starttime,
+         s.end_time       AS endtime,
+         s.status,
+         COUNT(ar.attendance_id) AS attendancecount
        FROM sessions s
        JOIN courses c ON s.course_id = c.course_id
        LEFT JOIN attendance_records ar ON s.session_id = ar.session_id
        WHERE s.lecturer_id = $1 AND s.status = 'Closed'
        GROUP BY s.session_id, s.course_id, c.course_name, s.start_time, s.end_time, s.status
        ORDER BY s.start_time DESC
-       LIMIT 30`,
+       LIMIT 200`,
       [lecturerId]
     );
     res.json(result.rows);
