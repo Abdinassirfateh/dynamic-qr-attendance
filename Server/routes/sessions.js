@@ -477,4 +477,82 @@ router.get('/lecturer/history', verifyToken, authorizeRole('Lecturer', 'Admin'),
   }
 });
 
+// 17. GET STUDENT CHART DATA (Add this at the bottom before module.exports)
+router.get('/student/chart-data', verifyToken, authorizeRole('Student'), async (req, res) => {
+  try {
+    const studentId = req.user.user_id;
+
+    // 1. Get all closed sessions for the student's courses
+    const sessionsQuery = await pool.query(`
+      SELECT s.session_id, s.course_id, s.start_time
+      FROM sessions s
+      JOIN enrollments e ON s.course_id = e.course_id
+      WHERE e.student_id = $1 AND s.status = 'Closed'
+      ORDER BY s.start_time ASC
+    `, [studentId]);
+
+    if (sessionsQuery.rows.length === 0) return res.json([]);
+
+    // 2. Get the student's actual attendance records
+    const attendanceQuery = await pool.query(`
+      SELECT session_id FROM attendance_records WHERE student_id = $1
+    `, [studentId]);
+    const attendedSessions = new Set(attendanceQuery.rows.map(r => r.session_id));
+
+    // 3. Dynamically calculate Week 1 (First Monday of the earliest session)
+    // This makes it automatically work for the next semester!
+    const firstDate = new Date(sessionsQuery.rows[0].start_time);
+    const firstMonday = new Date(firstDate);
+    firstMonday.setDate(firstDate.getDate() - ((firstDate.getDay() + 6) % 7));
+    firstMonday.setHours(0, 0, 0, 0);
+
+    const getWeekNum = (dateStr) => {
+      const d = new Date(dateStr);
+      return Math.floor((d - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
+    };
+
+    // 4. Calculate Cumulative Attendance per Week
+    const currentWeek = getWeekNum(new Date());
+    const maxWeek = Math.min(14, Math.max(1, currentWeek)); // Cap at 14 weeks, but go up to current week
+    const weeklyData = [];
+    
+    // Track running totals
+    const courseTotals = {};
+    const courseAttended = {};
+    sessionsQuery.rows.forEach(s => {
+      courseTotals[s.course_id] = 0;
+      courseAttended[s.course_id] = 0;
+    });
+
+    for (let w = 1; w <= maxWeek; w++) {
+      let weekObj = { week: `Wk ${w}` };
+      const sessionsThisWeek = sessionsQuery.rows.filter(s => getWeekNum(s.start_time) === w);
+
+      // Update running totals for this week
+      sessionsThisWeek.forEach(s => {
+        courseTotals[s.course_id]++;
+        if (attendedSessions.has(s.session_id)) {
+          courseAttended[s.course_id]++;
+        }
+      });
+
+      // Calculate percentage for this week
+      Object.keys(courseTotals).forEach(course => {
+        if (courseTotals[course] > 0) {
+          weekObj[course] = Math.round((courseAttended[course] / courseTotals[course]) * 100);
+        } else {
+          weekObj[course] = 100; // Default to 100% if no classes have happened yet
+        }
+      });
+
+      weeklyData.push(weekObj);
+    }
+
+    res.json(weeklyData);
+  } catch (err) {
+    console.error("Error generating chart data:", err.message);
+    res.status(500).json({ error: 'Server error generating chart data' });
+  }
+});
+
 module.exports = router;

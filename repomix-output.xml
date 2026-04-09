@@ -2036,6 +2036,84 @@ router.get('/lecturer/history', verifyToken, authorizeRole('Lecturer', 'Admin'),
   }
 });
 
+// 17. GET STUDENT CHART DATA (Add this at the bottom before module.exports)
+router.get('/student/chart-data', verifyToken, authorizeRole('Student'), async (req, res) => {
+  try {
+    const studentId = req.user.user_id;
+
+    // 1. Get all closed sessions for the student's courses
+    const sessionsQuery = await pool.query(`
+      SELECT s.session_id, s.course_id, s.start_time
+      FROM sessions s
+      JOIN enrollments e ON s.course_id = e.course_id
+      WHERE e.student_id = $1 AND s.status = 'Closed'
+      ORDER BY s.start_time ASC
+    `, [studentId]);
+
+    if (sessionsQuery.rows.length === 0) return res.json([]);
+
+    // 2. Get the student's actual attendance records
+    const attendanceQuery = await pool.query(`
+      SELECT session_id FROM attendance_records WHERE student_id = $1
+    `, [studentId]);
+    const attendedSessions = new Set(attendanceQuery.rows.map(r => r.session_id));
+
+    // 3. Dynamically calculate Week 1 (First Monday of the earliest session)
+    // This makes it automatically work for the next semester!
+    const firstDate = new Date(sessionsQuery.rows[0].start_time);
+    const firstMonday = new Date(firstDate);
+    firstMonday.setDate(firstDate.getDate() - ((firstDate.getDay() + 6) % 7));
+    firstMonday.setHours(0, 0, 0, 0);
+
+    const getWeekNum = (dateStr) => {
+      const d = new Date(dateStr);
+      return Math.floor((d - firstMonday) / (7 * 24 * 60 * 60 * 1000)) + 1;
+    };
+
+    // 4. Calculate Cumulative Attendance per Week
+    const currentWeek = getWeekNum(new Date());
+    const maxWeek = Math.min(14, Math.max(1, currentWeek)); // Cap at 14 weeks, but go up to current week
+    const weeklyData = [];
+    
+    // Track running totals
+    const courseTotals = {};
+    const courseAttended = {};
+    sessionsQuery.rows.forEach(s => {
+      courseTotals[s.course_id] = 0;
+      courseAttended[s.course_id] = 0;
+    });
+
+    for (let w = 1; w <= maxWeek; w++) {
+      let weekObj = { week: `Wk ${w}` };
+      const sessionsThisWeek = sessionsQuery.rows.filter(s => getWeekNum(s.start_time) === w);
+
+      // Update running totals for this week
+      sessionsThisWeek.forEach(s => {
+        courseTotals[s.course_id]++;
+        if (attendedSessions.has(s.session_id)) {
+          courseAttended[s.course_id]++;
+        }
+      });
+
+      // Calculate percentage for this week
+      Object.keys(courseTotals).forEach(course => {
+        if (courseTotals[course] > 0) {
+          weekObj[course] = Math.round((courseAttended[course] / courseTotals[course]) * 100);
+        } else {
+          weekObj[course] = 100; // Default to 100% if no classes have happened yet
+        }
+      });
+
+      weeklyData.push(weekObj);
+    }
+
+    res.json(weeklyData);
+  } catch (err) {
+    console.error("Error generating chart data:", err.message);
+    res.status(500).json({ error: 'Server error generating chart data' });
+  }
+});
+
 module.exports = router;
 </file>
 
@@ -2546,6 +2624,7 @@ const app = express();
 app.use(cors({
   origin: [
     'http://localhost:5173',
+    'https://dynamic-qr-attendance.vercel.app',
     'https://dynamic-qr-attendance-abdinassirfatehs-projects.vercel.app'
   ],
   credentials: true
@@ -2564,6 +2643,7 @@ const io = new Server(server, {
   cors: {
     origin: [
       'http://localhost:5173',
+      'https://dynamic-qr-attendance.vercel.app',
       'https://dynamic-qr-attendance-abdinassirfatehs-projects.vercel.app'
     ],
     methods: ['GET', 'POST'],
@@ -2639,22 +2719,7 @@ import { Thumbmark } from '@thumbmarkjs/thumbmarkjs';
 import SpeechReader from '../components/SpeechReader';
 import API_URL from '../config';
 
-const weeklyAttendanceData = [
-  { week:'Wk 1',  SWE3090:100, APT1050:50,  APT3010:67  },
-  { week:'Wk 2',  SWE3090:83,  APT1050:33,  APT3010:67  },
-  { week:'Wk 3',  SWE3090:100, APT1050:100, APT3010:100 },
-  { week:'Wk 4',  SWE3090:83,  APT1050:100, APT3010:33  },
-  { week:'Wk 5',  SWE3090:83,  APT1050:83,  APT3010:67  },
-  { week:'Wk 6',  SWE3090:100, APT1050:100, APT3010:100 },
-  { week:'Wk 7',  SWE3090:50,  APT1050:83,  APT3010:100 },
-  { week:'Wk 8',  SWE3090:83,  APT1050:67,  APT3010:100 },
-  { week:'Wk 9',  SWE3090:83,  APT1050:100, APT3010:100 },
-  { week:'Wk 10', SWE3090:83,  APT1050:100, APT3010:67  },
-  { week:'Wk 11', SWE3090:83,  APT1050:100, APT3010:67  },
-  { week:'Wk 12', SWE3090:50,  APT1050:83,  APT3010:33  },
-  { week:'Wk 13', SWE3090:67,  APT1050:33,  APT3010:100 },
-  { week:'Wk 14', SWE3090:67,  APT1050:50,  APT3010:100 },
-];
+// ✅ 1. DELETED the hardcoded `weeklyAttendanceData` array from here.
 
 const AlertIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:'6px',verticalAlign:'middle'}} aria-hidden="true">
@@ -2694,18 +2759,22 @@ export default function StudentDashboard() {
   const [countdowns, setCountdowns] = useState({});
   const countdownRef = useRef({});
 
+  // ✅ 2. ADDED dynamic chart state and colors here
+  const [chartData, setChartData] = useState([]);
+  const chartColors = ['#1a237e', '#d32f2f', '#0288d1', '#f57f17', '#2e7d32'];
+
   useEffect(() => {
-  const fetchFingerprint = async () => {
-    try {
-      const tm = new Thumbmark();
-      const result = await tm.get();
-      setDeviceId(result.thumbmark);
-    } catch (err) {
-      console.error('Fingerprint error:', err);
-    }
-  };
-  fetchFingerprint();
-}, []);
+    const fetchFingerprint = async () => {
+      try {
+        const tm = new Thumbmark();
+        const result = await tm.get();
+        setDeviceId(result.thumbmark);
+      } catch (err) {
+        console.error('Fingerprint error:', err);
+      }
+    };
+    fetchFingerprint();
+  }, []);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -2715,16 +2784,23 @@ export default function StudentDashboard() {
     setUser(parsedUser);
   }, [navigate]);
 
+  // ✅ 3. REPLACED fetchCourses to include the new /chart-data endpoint
   useEffect(() => {
     const fetchCourses = async () => {
       try {
         const token = localStorage.getItem('token');
-        const [coursesRes, statsRes] = await Promise.all([
+        const [coursesRes, statsRes, chartRes] = await Promise.all([
           fetch(`${API_URL}/api/sessions/student/courses`,      { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/api/sessions/student/course-stats`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/api/sessions/student/chart-data`,   { headers: { Authorization: `Bearer ${token}` } })
         ]);
+        
         const coursesData = await coursesRes.json();
         const statsData   = statsRes.ok ? await statsRes.json() : [];
+        const chartDataRes = chartRes.ok ? await chartRes.json() : []; 
+        
+        setChartData(chartDataRes); // Set the chart data
+
         const statsMap = {};
         statsData.forEach(s => {
           statsMap[s.course_id] = s.total_sessions > 0 ? Math.round((s.attended_sessions / s.total_sessions) * 100) : 100;
@@ -2816,7 +2892,6 @@ export default function StudentDashboard() {
       setScanError(`You scanned a code for ${qrData.course}, but selected ${activeCourseToScan}.`);
       return;
     }
-    // ✅ DO NOT close the modal yet — wait for the response first
     const response = await fetch(`${API_URL}/api/sessions/attend`, {
       method: 'POST',
       headers: {
@@ -2827,10 +2902,8 @@ export default function StudentDashboard() {
     });
     const result = await response.json();
     if (!response.ok) {
-      // ✅ Error: keep modal OPEN so the message shows inside it
       setScanError(result.error);
     } else {
-      // ✅ Success only: NOW close the modal
       setIsScanning(false);
       setScanResult({
         course: qrData.course,
@@ -2968,15 +3041,25 @@ export default function StudentDashboard() {
                 <h4 style={{margin:'0 0 1.5rem 0',color:'#333'}}>Attendance Trends (14 Weeks)</h4>
                 <div style={{width:'100%',height:250}}>
                   <ResponsiveContainer>
-                    <LineChart data={weeklyAttendanceData} margin={{top:5,right:20,bottom:5,left:0}}>
+                    {/* ✅ 4. REPLACED the static LineChart with the dynamic mapped one */}
+                    <LineChart data={chartData} margin={{top:5,right:20,bottom:5,left:0}}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee"/>
                       <XAxis dataKey="week" tick={{fill:'#666',fontSize:11}} axisLine={false} tickLine={false}/>
                       <YAxis tick={{fill:'#666',fontSize:12}} axisLine={false} tickLine={false} domain={[0,100]}/>
                       <Tooltip contentStyle={{borderRadius:'8px',border:'none',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}/>
                       <Legend iconType="circle" wrapperStyle={{fontSize:'12px',paddingTop:'10px'}}/>
-                      <Line type="monotone" dataKey="SWE3090" stroke="#1a237e" strokeWidth={3} dot={{r:3}} activeDot={{r:6}}/>
-                      <Line type="monotone" dataKey="APT1050" stroke="#d32f2f" strokeWidth={3} dot={{r:3}} activeDot={{r:6}}/>
-                      <Line type="monotone" dataKey="APT3010" stroke="#0288d1" strokeWidth={3} dot={{r:3}} activeDot={{r:6}}/>
+                      
+                      {courses.map((course, index) => (
+                        <Line 
+                          key={course.code} 
+                          type="monotone" 
+                          dataKey={course.code} 
+                          stroke={chartColors[index % chartColors.length]} 
+                          strokeWidth={3} 
+                          dot={{r:3}} 
+                          activeDot={{r:6}}
+                        />
+                      ))}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>

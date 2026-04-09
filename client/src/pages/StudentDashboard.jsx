@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Scanner } from '@yudiel/react-qr-scanner';
-import { Thumbmark } from '@thumbmarkjs/thumbmarkjs';
+import { getFingerprint } from '@thumbmarkjs/thumbmarkjs';
 import SpeechReader from '../components/SpeechReader';
 import API_URL from '../config';
 
@@ -53,9 +53,9 @@ export default function StudentDashboard() {
   useEffect(() => {
     const fetchFingerprint = async () => {
       try {
-        const tm = new Thumbmark();
-        const result = await tm.get();
-        setDeviceId(result.thumbmark);
+        const fingerprint = await getFingerprint();
+         setDeviceId(fingerprint);
+        
       } catch (err) {
         console.error('Fingerprint error:', err);
       }
