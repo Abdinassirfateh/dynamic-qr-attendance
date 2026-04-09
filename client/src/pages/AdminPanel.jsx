@@ -22,6 +22,7 @@ export default function AdminPanel() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
+  const [deleteError, setDeleteError] = useState('');
   const [form, setForm] = useState({ firstName:'', lastName:'', email:'', password:'', role:'Lecturer', studentId:'' });
 
   const token = localStorage.getItem('token');
@@ -71,6 +72,30 @@ export default function AdminPanel() {
     } catch (err) { setFormError(err.message); }
     finally { setSaving(false); }
   };
+
+  // ── DELETE USER ──────────────────────────────────────────────────
+  const handleDeleteUser = async (userId, fullName, role) => {
+    setDeleteError('');
+    if (!window.confirm(`Are you sure you want to delete ${fullName}? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`${API_URL}/api/auth/admin/delete-user/${userId}`, {
+        method: 'DELETE',
+        headers: authHeader,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete user');
+      // Remove from list instantly
+      setUsers(prev => prev.filter(u => u.user_id !== userId));
+      // Update student count if needed
+      if (role === 'Student') {
+        setStats(prev => ({...prev, totalStudents: Math.max(0, prev.totalStudents - 1)}));
+      }
+      setFormSuccess(`🗑️ ${fullName} has been deleted.`);
+    } catch (err) {
+      setDeleteError(err.message);
+    }
+  };
+  // ────────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -187,9 +212,13 @@ export default function AdminPanel() {
             <section style={styles.section} aria-label="User management">
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'1rem'}}>
                 <h4 style={{margin:0,color:'#333'}}>System Users ({users.length})</h4>
-                <button onClick={()=>{ setShowModal(true); setFormError(''); setFormSuccess(''); }} style={{...styles.exportBtn,background:'#2e7d32'}} aria-label="Add new user to the system">+ Add User</button>
+                <button onClick={()=>{ setShowModal(true); setFormError(''); setFormSuccess(''); setDeleteError(''); }} style={{...styles.exportBtn,background:'#2e7d32'}} aria-label="Add new user to the system">+ Add User</button>
               </div>
-              {formSuccess && <p role="status" style={{color:'#2e7d32',marginBottom:'1rem',fontWeight:'600'}}>{formSuccess}</p>}
+
+              {/* Success / Error banners */}
+              {formSuccess && <p role="status" style={{color:'#2e7d32',marginBottom:'1rem',fontWeight:'600',background:'#e8f5e9',padding:'0.75rem',borderRadius:'6px'}}>{formSuccess}</p>}
+              {deleteError && <p role="alert" style={{color:'#d32f2f',marginBottom:'1rem',fontWeight:'600',background:'#ffebee',padding:'0.75rem',borderRadius:'6px'}}>⚠️ {deleteError}</p>}
+
               {loadingUsers ? <p>Loading users...</p> : users.length === 0 ? <p style={{color:'#888'}}>No users found.</p> : (
                 <table style={styles.table} aria-label="System users table">
                   <thead>
@@ -198,6 +227,7 @@ export default function AdminPanel() {
                       <th style={styles.th} scope="col">Email</th>
                       <th style={styles.th} scope="col">Role</th>
                       <th style={styles.th} scope="col">Status</th>
+                                            <th style={styles.th} scope="col">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -210,6 +240,15 @@ export default function AdminPanel() {
                         </td>
                         <td style={styles.td}>
                           <span style={{background:'#e8f5e9',color:'#2e7d32',padding:'0.3rem 0.6rem',borderRadius:'4px',fontSize:'0.8rem',fontWeight:'bold'}}>{u.status||'Active'}</span>
+                        </td>
+                        <td style={styles.td}>
+                          <button
+                            onClick={() => handleDeleteUser(u.user_id, `${u.first_name} ${u.last_name}`, u.role)}
+                            aria-label={`Delete ${u.first_name} ${u.last_name}`}
+                            style={styles.deleteBtn}
+                          >
+                            🗑 Delete
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -285,6 +324,7 @@ const styles = {
   section:{background:'#fff',padding:'1.5rem',borderRadius:'8px',boxShadow:'0 2px 10px rgba(0,0,0,0.03)',marginBottom:'1.5rem'},
   alertRow:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'0.75rem 1rem',borderRadius:'6px',marginBottom:'0.5rem'},
   exportBtn:{background:'#1a237e',color:'#fff',border:'none',padding:'0.6rem 1rem',borderRadius:'6px',cursor:'pointer',fontWeight:'600',fontSize:'0.85rem',display:'flex',alignItems:'center'},
+  deleteBtn:{background:'#d32f2f',color:'#fff',border:'none',padding:'0.3rem 0.75rem',borderRadius:'4px',fontSize:'0.8rem',fontWeight:'600',cursor:'pointer'},
   table:{width:'100%',borderCollapse:'collapse'},
   tableHeader:{borderBottom:'2px solid #eee'},
   th:{textAlign:'left',padding:'1rem 0.5rem',color:'#666',fontWeight:'600',fontSize:'0.9rem'},

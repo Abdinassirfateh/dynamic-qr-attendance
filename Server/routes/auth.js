@@ -6,7 +6,6 @@ const pool = require('../db');
 
 const router = express.Router();
 
-// 1. REGISTER
 router.post('/register', async (req, res) => {
   try {
     const { firstName, lastName, studentId, email, password, role } = req.body;
@@ -15,35 +14,47 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Valid 6-digit student ID required for student accounts.' });
     }
 
-    const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (userExists.rows.length > 0) {
-      return res.status(401).json({ error: 'User already exists' });
-    }
+    const userExists = await pool.query('SELECT FROM users WHERE email = $1', [email]);
+    if (userExists.rows.length > 0) return res.status(401).json({ error: 'User already exists' });
 
     if (studentId) {
-      const idExists = await pool.query('SELECT * FROM users WHERE student_id = $1', [studentId]);
-      if (idExists.rows.length > 0) {
-        return res.status(401).json({ error: 'Student ID already registered' });
-      }
+      const idExists = await pool.query('SELECT FROM users WHERE student_id = $1', [studentId]);
+      if (idExists.rows.length > 0) return res.status(401).json({ error: 'Student ID already registered' });
     }
 
     const saltRounds = 10;
-    const salt = await bcrypt.genSalt(saltRounds);
-    const bcryptPassword = await bcrypt.hash(password, salt);
+    const bcryptPassword = await bcrypt.hash(password, saltRounds);
     const userId = crypto.randomUUID();
 
     const newUser = await pool.query(
-      'INSERT INTO users (user_id, first_name, last_name, student_id, email, password_hash, role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING user_id, first_name, last_name, student_id, email, role',
+      `INSERT INTO users (user_id, first_name, last_name, student_id, email, password_hash, role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING user_id, first_name, last_name, student_id, email, role`,
       [userId, firstName, lastName, studentId || null, email, bcryptPassword, role]
     );
 
+    // ── AUTO-ENROLL NEW STUDENTS IN ALL 5 COURSES ──────────────────
+    if (role === 'Student') {
+      const courses = ['SWE3090', 'APT1050', 'APT3010', 'SWE4060', 'APT3060'];
+      for (const courseId of courses) {
+        await pool.query(
+          `INSERT INTO enrollments (student_id, course_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`,
+          [userId, courseId]
+        );
+      }
+    }
+    // ───────────────────────────────────────────────────────────────
+
     const token = jwt.sign(
-      { user_id: newUser.rows[0].user_id, role: newUser.rows[0].role },
+      { userid: newUser.rows[0].user_id, role: newUser.rows[0].role },
       process.env.JWT_SECRET,
       { expiresIn: '10h' }
     );
 
     res.json({ token, user: newUser.rows[0] });
+
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ error: 'Server Error during registration' });
@@ -151,6 +162,34 @@ router.get('/admin/users', async (req, res) => {
   } catch (err) {
     console.error('Admin list-users error:', err.message);
     res.status(500).json({ error: 'Server error while fetching users.' });
+  }
+});
+// 5. DELETE USER (Admin only)
+router.delete('/admin/delete-user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Delete related records first to avoid foreign key errors
+    await pool.query('DELETE FROM enrollments WHERE student_id = $1', [userId]);
+    await pool.query('DELETE FROM attendance_records WHERE student_id = $1', [userId]);
+    await pool.query('DELETE FROM anomaly_logs WHERE attempted_student_id = $1::text', [userId]);
+    await pool.query('DELETE FROM lecturer_courses WHERE lecturer_id = $1', [userId]);
+    await pool.query('DELETE FROM sessions WHERE lecturer_id = $1', [userId]);
+
+    // Now delete the user
+    const result = await pool.query(
+      'DELETE FROM users WHERE user_id = $1 RETURNING user_id, first_name, last_name',
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    res.json({ message: `${result.rows[0].first_name} ${result.rows[0].last_name} deleted successfully.` });
+  } catch (err) {
+    console.error('Delete user error:', err.message);
+    res.status(500).json({ error: 'Server error while deleting user.' });
   }
 });
 
