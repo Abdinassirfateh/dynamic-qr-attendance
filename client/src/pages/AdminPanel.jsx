@@ -281,8 +281,8 @@ export default function AdminPanel() {
                   </div>
                   {form.role === 'Student' && (
                     <div style={styles.formRow}>
-                      <label htmlFor="field-studentId" style={styles.label}>Student ID (6 digits)</label>
-                      <input id="field-studentId" type="text" name="studentId" value={form.studentId} onChange={handleChange} style={styles.input} placeholder="e.g. 672541" maxLength={6}/>
+                     <label htmlFor="field-studentId" style={styles.label}>Student ID (6–15 digits)</label> 
+                      <input id="field-studentId" type="text" name="studentId" value={form.studentId} onChange={handleChange} style={styles.input} placeholder="e.g. 672541" maxLength={15}/>
                     </div>
                   )}
                   <div style={{display:'flex',gap:'0.75rem',marginTop:'1.5rem'}}>

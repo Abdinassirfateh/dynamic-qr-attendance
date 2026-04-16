@@ -10,8 +10,8 @@ router.post('/register', async (req, res) => {
   try {
     const { firstName, lastName, studentId, email, password, role } = req.body;
 
-    if (role === 'Student' && (!studentId || !/^\d{6}$/.test(studentId))) {
-      return res.status(400).json({ error: 'Valid 6-digit student ID required for student accounts.' });
+    if (role === 'Student' && (!studentId || !/^\d{6,15}$/.test(studentId))) {
+      return res.status(400).json({ error: 'Valid student ID (6–15 digits) required for student accounts.' });
     }
 
     const userExists = await pool.query('SELECT FROM users WHERE email = $1', [email]);
@@ -33,20 +33,31 @@ router.post('/register', async (req, res) => {
       [userId, firstName, lastName, studentId || null, email, bcryptPassword, role]
     );
 
-    // ── AUTO-ENROLL NEW STUDENTS IN ALL 5 COURSES ──────────────────
+    // ── AUTO-ENROLL NEW STUDENTS ────────────────────────────────────
     if (role === 'Student') {
-      const courses = ['SWE3090', 'APT1050', 'APT3010', 'SWE4060', 'APT3060'];
-      for (const courseId of courses) {
+      // 1. Enroll in the 5 fixed courses (existing behaviour)
+      const fixedCourses = ['SWE3090', 'APT1050', 'APT3010', 'SWE4060', 'APT3060'];
+      for (const courseId of fixedCourses) {
         await pool.query(
-          `INSERT INTO enrollments (student_id, course_id)
-           VALUES ($1, $2)
-           ON CONFLICT DO NOTHING`,
+          `INSERT INTO enrollments (student_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [userId, courseId]
         );
       }
+      // 2. Also enroll in any course where this student_id is on the imported roster
+      if (studentId) {
+        const rosterRows = await pool.query(
+          'SELECT DISTINCT course_id FROM course_rosters WHERE student_id = $1',
+          [studentId]
+        );
+        for (const row of rosterRows.rows) {
+          await pool.query(
+            `INSERT INTO enrollments (student_id, course_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [userId, row.course_id]
+          );
+        }
+      }
     }
     // ───────────────────────────────────────────────────────────────
-
     const token = jwt.sign(
       { userid: newUser.rows[0].user_id, role: newUser.rows[0].role },
       process.env.JWT_SECRET,
@@ -113,8 +124,8 @@ router.post('/admin/create-user', async (req, res) => {
       return res.status(400).json({ error: 'Invalid role.' });
     }
 
-    if (role === 'Student' && (!studentId || !/^\d{6}$/.test(studentId))) {
-      return res.status(400).json({ error: 'Valid 6-digit student ID required for student accounts.' });
+    if (role === 'Student' && (!studentId || !/^\d{6,15}$/.test(studentId))) {
+      return res.status(400).json({ error: 'Valid student ID (6–15 digits) required for student accounts.' });
     }
 
     const userExists = await pool.query('SELECT 1 FROM users WHERE email = $1', [email]);

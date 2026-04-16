@@ -172,7 +172,7 @@ router.get('/attendance/:sessionId', verifyToken, authorizeRole('Lecturer', 'Adm
 // 8. GET SESSION HISTORY FOR LECTURER (legacy route)
 router.get('/history', verifyToken, authorizeRole('Lecturer', 'Admin'), async (req, res) => {
   try {
-    const lecturerId = req.user.userid;
+    const lecturerId = req.user.user_id || req.user.userid;
     const sessions = await pool.query(
       `SELECT 
          s.session_id  AS sessionid,
@@ -563,6 +563,28 @@ router.get('/student/chart-data', verifyToken, authorizeRole('Student'), async (
   } catch (err) {
     console.error("Error generating chart data:", err.message);
     res.status(500).json({ error: 'Server error generating chart data' });
+  }
+});
+// LECTURER SESSION HISTORY — used by LecturerDashboard history tab
+router.get('/lecturer/history', verifyToken, authorizeRole('Lecturer', 'Admin'), async (req, res) => {
+  try {
+    const lecturerId = req.user.user_id;
+    const result = await pool.query(
+      `SELECT s.session_id, s.course_id, c.course_name, s.start_time, s.end_time, s.status,
+              COUNT(ar.attendance_id)::int AS attendance_count
+       FROM sessions s
+       JOIN courses c ON s.course_id = c.course_id
+       LEFT JOIN attendance_records ar ON s.session_id = ar.session_id
+       WHERE s.lecturer_id = $1 AND s.status = 'Closed'
+       GROUP BY s.session_id, s.course_id, c.course_name, s.start_time, s.end_time, s.status
+       ORDER BY s.start_time DESC
+       LIMIT 200`,
+      [lecturerId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ error: 'Error fetching lecturer history' });
   }
 });
 

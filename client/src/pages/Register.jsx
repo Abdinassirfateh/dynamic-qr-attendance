@@ -104,7 +104,7 @@ export default function Register() {
             {/* ── ADD THIS BLOCK ── */}
             {role === 'Student' && (
               <div style={styles.fieldGroup}>
-                <label htmlFor="studentId" style={styles.label}>Student ID (6 digits)</label>
+                <label htmlFor="studentId" style={styles.label}>Student ID (6–15 digits)</label>
                 <input
                   id="studentId"
                   type="text"
@@ -112,7 +112,7 @@ export default function Register() {
                   value={studentId}
                   onChange={(e) => setStudentId(e.target.value)}
                   required
-                  maxLength={6}
+                  maxLength={15}
                   style={styles.input}
                 />
               </div>

@@ -22,6 +22,7 @@ app.use(express.json());
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/sessions', require('./routes/sessions'));
+app.use('/api/courses', require('./routes/courses'));
 
 // ✅ STEP 1: Create the HTTP server first
 const server = http.createServer(app);
